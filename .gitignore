@@ -1,0 +1,32 @@
+# vscode
+.vscode
+
+# Intellij
+*.iml
+.idea
+
+# npm
+node_modules
+
+# Exclude sourcemaps
+*.map
+
+# obsidian
+data.json
+
+# Exclude macOS Finder (System Explorer) View States
+.DS_Store
+
+# Backup files
+*.bak
+
+# AI assistant / dev-only files
+.claude/
+CLAUDE.md
+AGENTS.md
+
+# Runtime data
+history.json
+
+# Built output
+main.js

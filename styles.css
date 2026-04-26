@@ -1,0 +1,4025 @@
+/* ════════════════════════════════════════════════════════
+   WatchLog Plugin Styles
+   Uses Obsidian CSS variables throughout.
+   ════════════════════════════════════════════════════════ */
+
+/* ── View shell ─────────────────────────────────────────── */
+.wl-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  font-size: var(--font-ui-small);
+  color: var(--text-normal);
+}
+
+/* ── Tab bar ────────────────────────────────────────────── */
+.wl-tab-bar {
+  display: flex;
+  gap: 2px;
+  padding: 8px 10px 0;
+  border-bottom: 0.5px solid var(--background-modifier-border);
+  flex-shrink: 0;
+}
+
+.wl-tab-btn {
+  padding: 5px 14px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: var(--font-ui-small);
+  font-weight: 500;
+  margin-bottom: -0.5px;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.wl-tab-btn:hover {
+  color: var(--text-normal);
+}
+
+.wl-tab-btn.is-active {
+  color: var(--text-accent);
+  border-bottom-color: var(--text-accent);
+}
+
+/* ── Tab content ────────────────────────────────────────── */
+.wl-tab-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 10px;
+}
+
+/* ════════════════════════════════════════════════════════
+   DASHBOARD TAB
+   ════════════════════════════════════════════════════════ */
+
+/* ── Dashboard container ────────────────────────────────── */
+.wl-dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* ── Rings grid ─────────────────────────────────────────── */
+.wl-rings-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.wl-ring-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  position: relative;
+}
+
+.wl-ring-item::before {
+    content: '';
+    position: absolute;
+    width: 94px;
+    height: 94px;
+    border-radius: 50%;
+    border: 2px solid var(--wl-accent);
+    opacity: 0.9;
+    top: 36.5%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+
+.wl-ring-svg {
+  overflow: visible;
+}
+
+.wl-ring-track {
+  stroke: var(--background-modifier-border);
+}
+
+.wl-ring-arc {
+  transition: stroke-dashoffset 0.4s ease;
+}
+
+.wl-ring-percent-text {
+  font-size: 18px;
+  font-weight: 700;
+  fill: var(--text-normal);
+}
+
+.wl-ring-sub-text {
+  font-size: 11px;
+  fill: var(--text-muted);
+}
+
+.wl-ring-label {
+  font-size: var(--font-ui-small);
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+.wl-ring-subtitle {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* ── Summary metrics ────────────────────────────────────── */
+.wl-summary-metrics {
+  margin-bottom: 16px;
+  border: 0.5px solid var(--background-modifier-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.wl-metric-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 0.5px solid var(--background-modifier-border);
+}
+
+.wl-metric-row:last-child {
+  border-bottom: none;
+}
+
+.wl-metric-label {
+  color: var(--text-muted);
+}
+
+.wl-metric-value {
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+/* ── Time ring text ─────────────────────────────────────── */
+.wl-ring-time-text {
+  font-size: 13px;
+  font-weight: 700;
+  fill: var(--text-normal);
+}
+
+/* ── Recently watched ───────────────────────────────────── */
+.wl-section-title {
+  font-size: var(--font-ui-small);
+  font-weight: 600;
+  color: #ffffff;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 8px;
+}
+
+.wl-recently-watched {
+  margin-bottom: 8px;
+}
+
+.wl-rw-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 5px;
+  margin-bottom: 4px;
+  background: var(--background-secondary);
+}
+
+.wl-rw-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Fixed 3-column right side: badge | ep | pct */
+.wl-rw-col-badge {
+  flex-shrink: 0;
+}
+
+.wl-rw-col-ep {
+  width: 38px;
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.wl-rw-col-pct {
+  width: 32px;
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* ── Empty state ────────────────────────────────────────── */
+.wl-empty-state {
+  color: var(--text-muted);
+  font-style: italic;
+  padding: 12px 0;
+  text-align: center;
+}
+
+/* ════════════════════════════════════════════════════════
+   LIST TAB
+   ════════════════════════════════════════════════════════ */
+
+.wl-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* ── Header ─────────────────────────────────────────────── */
+.wl-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 4px;
+}
+
+.wl-list-title {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.wl-add-btn {
+  padding: 4px 10px;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: var(--font-ui-small);
+  font-weight: 500;
+}
+
+.wl-add-btn:hover {
+  background: var(--interactive-accent-hover);
+}
+
+/* ── Search ─────────────────────────────────────────────── */
+.wl-search-wrap {
+  width: 100%;
+}
+
+.wl-search-input {
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: 5px;
+  border: 0.5px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+  box-sizing: border-box;
+}
+
+.wl-search-input:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+
+/* ── Controls row ───────────────────────────────────────── */
+.wl-controls-row {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.wl-select {
+  padding: 4px 6px;
+  border-radius: 4px;
+  border: 0.5px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  font-size: 11px;
+  cursor: pointer;
+  flex: 1;
+  min-width: 0;
+}
+
+.wl-select-sm {
+  flex: unset;
+  width: auto;
+}
+
+.wl-select:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+
+/* ── Divider ────────────────────────────────────────────── */
+.wl-divider {
+  height: 0.5px;
+  background: var(--background-modifier-border);
+  margin: 2px 0;
+}
+
+/* ── Results count ──────────────────────────────────────── */
+.wl-results-count {
+  font-size: 14px;
+  font-weight: 700;
+  color: #ffffff;
+  padding: 2px 0;
+}
+
+/* ── Table ──────────────────────────────────────────────── */
+.wl-table-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.wl-table {
+  border: 0.5px solid var(--background-modifier-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+/* Virtual-scroll: measurement container (hidden, in-flow, same width as table) */
+.wl-virt-measure {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* Virtual-scroll: fixed-height container; children are absolutely positioned */
+.wl-virt-container {
+  position: relative;
+}
+
+/* Virtual-scroll: each rendered item; top is set inline from the offset table */
+.wl-virt-item {
+  position: absolute;
+  left: 0;
+  right: 0;
+}
+
+.wl-table-header-row {
+  display: grid;
+  /* Title | Priority | Started | Rating | Status | Pin */
+  grid-template-columns: 1fr 56px 72px 56px 90px 20px;
+  padding: 5px 8px;
+  background: #626262;
+  font-size: 12px;
+  font-weight: 600;
+  color: #ffffff;
+  border-bottom: 0.5px solid var(--background-modifier-border);
+}
+
+.wl-col-priority-h,
+.wl-col-started-h,
+.wl-col-rating-h,
+.wl-col-status-h {
+  text-align: center;
+}
+
+/* ── Row ────────────────────────────────────────────────── */
+.wl-row {
+  display: grid;
+  grid-template-columns: 1fr 56px 72px 56px 90px 20px;
+  padding: 7px 8px;
+  align-items: center;
+  cursor: pointer;
+  border-bottom: 2px solid var(--wl-group-border-overlay);
+  transition: background 0.1s;
+  border-top: 2px solid var(--wl-group-border-overlay);
+  border-left: 2px solid rgb(255 255 255 / 20%);
+  border-right: 2px solid rgb(255 255 255 / 20%);
+}
+
+/* Visible gap between top-level rows and after accordions */
+.wl-row + .wl-row:not(.wl-row-indented),
+.wl-accordion + .wl-row:not(.wl-row-indented) {
+  margin-top: 8px;
+}
+
+.wl-row:hover {
+  background: var(--background-modifier-hover);
+}
+
+.wl-row.is-expanded {
+  background: var(--background-secondary);
+}
+
+.wl-col-title {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  /* Fix #2: prevent badge from stretching to full column width */
+  align-items: flex-start;
+}
+
+.wl-row-title-text {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wl-col-started {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* ── Rating column ──────────────────────────────────────── */
+.wl-col-rating {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.wl-row-rating {
+  font-size: 11px;
+  color: var(--wl-rating-color);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.wl-row-rating-empty {
+  color: var(--text-faint);
+  font-weight: 400;
+}
+
+.wl-col-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* wl-chevron kept for season headers only */
+.wl-chevron {
+  font-size: 18px;
+  color: var(--text-muted);
+  display: inline-block;
+  transition: transform 0.2s;
+}
+
+.wl-chevron.is-open {
+  transform: rotate(90deg);
+}
+
+/* ── Progress bar ───────────────────────────────────────── */
+.wl-progress-wrap {
+  height: 3px;
+  background: var(--background-modifier-border);
+  border-radius: 2px;
+  overflow: hidden;
+  width: 100%;
+}
+
+.wl-progress-bar {
+  height: 100%;
+  background: var(--wl-accent);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+  min-width: 0;
+}
+
+/* ── Badges ─────────────────────────────────────────────── */
+.wl-badge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #fff;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
+.wl-badge-sm {
+  padding: 1px 6px;
+  font-size: 10px;
+}
+
+.wl-badge-plain {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: bold;
+  color: var(--text-normal);
+  white-space: nowrap;
+}
+
+/* ════════════════════════════════════════════════════════
+   ACCORDION
+   ════════════════════════════════════════════════════════ */
+
+.wl-accordion {
+  padding: 12px 10px;
+  background: var(--background-primary-alt);
+  border-bottom: 0.5px solid var(--background-modifier-border);
+}
+
+/* ── Accordion header ───────────────────────────────────── */
+.wl-accordion-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 12px;
+  gap: 10px;
+}
+
+.wl-acc-header-left {
+  flex: 1;
+  min-width: 0;
+}
+
+.wl-acc-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.wl-acc-subtitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.wl-acc-eps-total {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+.wl-acc-header-right {
+  flex-shrink: 0;
+  text-align: right;
+  min-width: 70px;
+}
+
+.wl-acc-percent {
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.wl-acc-progress-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.wl-acc-progress-wrap {
+  height: 3px;
+  background: var(--background-modifier-border);
+  border-radius: 2px;
+  overflow: hidden;
+  width: 70px;
+}
+
+/* ── Accordion body ─────────────────────────────────────── */
+.wl-accordion-body {
+  margin-bottom: 12px;
+}
+
+/* ── Season ─────────────────────────────────────────────── */
+.wl-season-wrap {
+  margin-bottom: 10px;
+}
+
+.wl-season-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding: 4px 0;
+  user-select: none;
+}
+
+.wl-season-header:hover {
+  opacity: 0.85;
+}
+
+.wl-season-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.wl-season-ep-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  flex: 1;
+}
+
+/* ── Episode grid ───────────────────────────────────────── */
+.wl-episode-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 0;
+}
+
+.wl-episode-box {
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  border: 0.5px solid var(--background-modifier-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 500;
+  cursor: pointer;
+  background: var(--background-primary);
+  color: var(--text-muted);
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  user-select: none;
+}
+
+.wl-episode-box:hover {
+  border-color: var(--interactive-accent);
+  color: var(--text-normal);
+}
+
+.wl-episode-box.is-watched {
+  background: var(--wl-watched-color);
+  border-color: var(--wl-watched-color);
+  color: #fff;
+  font-size: 14px;
+}
+
+/* ── Season fill/clear button ───────────────────────────── */
+.wl-season-fill-btn {
+  width: 20px;
+  height: 28px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  user-select: none;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+}
+
+.wl-season-fill-btn.is-fill {
+  background: #1D9E75;
+  border: 0.5px solid #1D9E75;
+  color: #fff;
+}
+
+.wl-season-fill-btn.is-clear {
+  background: #E24B4A;
+  border: 0.5px solid #E24B4A;
+  color: #fff;
+}
+
+.wl-season-fill-btn:hover {
+  opacity: 0.75;
+}
+
+/* ── Movie row ──────────────────────────────────────────── */
+.wl-movie-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+}
+
+.wl-movie-checkbox {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.wl-movie-label {
+  font-weight: 500;
+}
+
+.wl-movie-date {
+  padding: 3px 6px;
+  border: 0.5px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+}
+
+/* ── Accordion footer ───────────────────────────────────── */
+.wl-accordion-footer {
+  border-top: 0.5px solid var(--background-modifier-border);
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wl-stars-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wl-stars-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  width: 48px;
+  flex-shrink: 0;
+}
+
+.wl-stars {
+  display: flex;
+  gap: 3px;
+}
+
+.wl-star {
+  font-size: 18px;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: color 0.12s;
+  line-height: 1;
+}
+
+.wl-star:hover,
+.wl-star.is-active {
+  color: var(--wl-rating-color);
+}
+
+.wl-footer-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wl-footer-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  width: 80px;
+  flex-shrink: 0;
+}
+
+.wl-notes-input {
+  flex: 1;
+  padding: 4px 8px;
+  border: 0.5px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+}
+
+.wl-footer-date {
+  padding: 3px 6px;
+  border: 0.5px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+}
+
+.wl-footer-action-row {
+  margin-top: 4px;
+  gap: 6px;
+  justify-content: space-between;
+}
+
+.wl-edit-btn {
+  padding: 3px 10px;
+  background: transparent;
+  border: 0.5px solid var(--background-modifier-border);
+  color: var(--text-normal);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.wl-edit-btn:hover {
+  background: var(--background-modifier-hover);
+}
+
+.wl-delete-btn {
+  padding: 3px 10px;
+  background: transparent;
+  border: 0.5px solid var(--text-error);
+  color: var(--text-error);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.wl-delete-btn:hover {
+  background: var(--background-modifier-error);
+}
+
+/* ════════════════════════════════════════════════════════
+   INLINE WIDGET
+   ════════════════════════════════════════════════════════ */
+
+.wl-widget {
+  border: 0.5px solid var(--background-modifier-border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: var(--background-secondary);
+  margin: 4px 0;
+}
+
+.wl-widget-main-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.wl-widget-cb,
+.wl-widget-next-cb {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.wl-widget-title {
+  font-weight: 600;
+  font-size: var(--font-ui-small);
+}
+
+.wl-widget-sep {
+  color: var(--text-faint);
+  font-size: 10px;
+  padding: 0 1px;
+}
+
+.wl-widget-bar-wrap {
+  flex: 1;
+  min-width: 40px;
+  height: 3px;
+  background: var(--background-modifier-border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.wl-widget-percent {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.wl-widget-date {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.wl-widget-next-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 5px;
+  padding-top: 5px;
+  border-top: 0.5px solid var(--background-modifier-border);
+}
+
+.wl-widget-next-label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.wl-widget-error {
+  color: var(--text-error);
+  font-size: var(--font-ui-small);
+  font-style: italic;
+  padding: 4px 8px;
+}
+
+/* ════════════════════════════════════════════════════════
+   MODALS
+   ════════════════════════════════════════════════════════ */
+
+.wl-add-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.wl-modal-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wl-modal-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  width: 110px;
+  flex-shrink: 0;
+}
+
+.wl-modal-input {
+  flex: 1;
+  padding: 5px 8px;
+  border: 0.5px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+}
+
+.wl-modal-input-sm {
+  max-width: 80px;
+  flex: unset;
+}
+
+.wl-modal-input:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+
+.wl-modal-info {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.wl-modal-error {
+  font-size: 11px;
+  color: var(--text-error);
+  font-style: italic;
+}
+
+.wl-input-error {
+  border-color: var(--text-error) !important;
+}
+
+.wl-modal-textarea {
+  flex: 1;
+  width: 100%;
+  padding: 5px 8px;
+  border: 0.5px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+  resize: vertical;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+.wl-modal-textarea:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+
+.wl-modal-input-stack {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.wl-modal-results {
+  max-height: 200px;
+  overflow-y: auto;
+  border: 0.5px solid var(--background-modifier-border);
+  border-radius: 5px;
+  margin-top: 2px;
+}
+
+.wl-result-item {
+  padding: 7px 10px;
+  cursor: pointer;
+  border-bottom: 0.5px solid var(--background-modifier-border);
+  transition: background 0.1s;
+}
+
+.wl-result-item:last-child {
+  border-bottom: none;
+}
+
+.wl-result-item:hover,
+.wl-result-item.is-selected,
+.wl-result-item.wl-result-item-focused {
+  background: var(--background-modifier-hover);
+}
+
+.wl-result-title {
+  font-weight: 500;
+  font-size: var(--font-ui-small);
+}
+
+.wl-result-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.wl-modal-loading {
+  padding: 10px;
+  text-align: center;
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: var(--font-ui-small);
+}
+
+.wl-modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 0.5px solid var(--background-modifier-border);
+}
+
+.wl-modal-btn-row {
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-end;
+  align-items: center;
+  margin-top: 4px;
+  gap: 8px;
+}
+
+.wl-duplicate-warning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: color-mix(in srgb, var(--background-modifier-error) 60%, transparent 40%);
+  border: 0.5px solid color-mix(in srgb, var(--background-modifier-border) 50%, #E24B4A 50%);
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-size: var(--font-ui-small);
+  color: var(--text-normal);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.wl-btn {
+  padding: 5px 12px;
+  border: 0.5px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  cursor: pointer;
+  font-size: var(--font-ui-small);
+}
+
+.wl-btn:hover {
+  background: var(--background-modifier-hover);
+}
+
+.wl-btn-primary {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border-color: var(--interactive-accent);
+}
+
+.wl-btn-primary:hover {
+  background: var(--interactive-accent-hover);
+}
+
+/* ════════════════════════════════════════════════════════
+   SETTINGS
+   ════════════════════════════════════════════════════════ */
+
+.wl-settings-nav {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 16px;
+  border-bottom: 0.5px solid var(--background-modifier-border);
+  padding-bottom: 0;
+}
+
+.wl-settings-nav-btn {
+  padding: 6px 16px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: var(--font-ui-small);
+  font-weight: 500;
+  margin-bottom: -0.5px;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.wl-settings-nav-btn:hover {
+  color: var(--text-normal);
+}
+
+.wl-settings-nav-btn.is-active {
+  color: var(--text-accent);
+  border-bottom-color: var(--text-accent);
+}
+
+.wl-settings-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 14px 0 8px;
+}
+
+.wl-settings-info {
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+  background: var(--background-secondary);
+  border-radius: 5px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  border-left: 3px solid var(--interactive-accent);
+}
+
+.wl-status-indicator {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 4px 0 8px;
+}
+
+.wl-status-ok {
+  color: #1D9E75;
+  font-weight: 600;
+}
+
+.wl-status-error {
+  color: #E24B4A;
+  font-weight: 600;
+}
+
+/* ── Tag sections ───────────────────────────────────────── */
+.wl-tag-section {
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  border: 0.5px solid var(--background-modifier-border);
+  border-radius: 6px;
+}
+
+.wl-tags-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+  min-height: 24px;
+}
+
+.wl-tag-pill {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 20px;
+  background: var(--background-secondary);
+  border: 0.5px solid var(--background-modifier-border);
+  font-size: 12px;
+}
+
+.wl-tag-dot-wrap {
+  position: relative;
+  display: inline-flex;
+  cursor: pointer;
+}
+
+.wl-tag-dot-wrap:hover .wl-tag-dot {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 1px;
+}
+
+.wl-tag-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.wl-tag-color-picker {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Season color palette */
+.wl-season-colors-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.wl-season-color-pill {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--background-secondary);
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-size: 12px;
+}
+
+.wl-season-color-label {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.wl-tag-name {
+  color: var(--text-normal);
+}
+
+.wl-tag-del {
+  color: var(--text-faint);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  margin-left: 2px;
+}
+
+.wl-tag-del:hover {
+  color: var(--text-error);
+}
+
+.wl-tag-add-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.wl-color-input {
+  width: 36px;
+  height: 28px;
+  border: 0.5px solid var(--background-modifier-border);
+  border-radius: 4px;
+  padding: 2px;
+  cursor: pointer;
+  background: none;
+}
+
+/* ── Folders ────────────────────────────────────────────── */
+.wl-folder-list {
+  margin: 8px 0;
+}
+
+.wl-folder-row {
+  display: flex;
+  gap: 10px;
+  padding: 5px 0;
+  border-bottom: 0.5px solid var(--background-modifier-border);
+  font-size: var(--font-ui-small);
+}
+
+.wl-folder-type {
+  font-weight: 500;
+  width: 100px;
+  flex-shrink: 0;
+}
+
+.wl-folder-path {
+  color: var(--text-muted);
+  font-family: var(--font-monospace);
+  font-size: 11px;
+}
+
+/* ════════════════════════════════════════════════════════
+   MOBILE RESPONSIVE
+   ════════════════════════════════════════════════════════ */
+
+@media (max-width: 600px) {
+  /* FEATURE 2 — hide Priority, Started, Rating columns */
+  .wl-col-priority,
+  .wl-col-priority-h,
+  .wl-col-started,
+  .wl-col-started-h,
+  .wl-col-rating,
+  .wl-col-rating-h {
+    display: none;
+  }
+
+  .wl-table-header-row,
+  .wl-row {
+    grid-template-columns: 1fr 90px 20px;
+  }
+
+  /* FEATURE 3 — smaller toolbar buttons */
+  .wl-header-controls .wl-btn,
+  .wl-header-controls .wl-add-btn {
+    font-size: 10px;
+    padding: 3px 6px;
+  }
+}
+
+@media (max-width: 400px) {
+  .wl-rings-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .wl-ring-svg {
+    width: 90px;
+    height: 90px;
+  }
+
+  .wl-table-header-row,
+  .wl-row {
+    grid-template-columns: 1fr 56px 20px;
+  }
+
+  .wl-col-started,
+  .wl-col-rating,
+  .wl-col-started-h,
+  .wl-col-rating-h,
+  .wl-col-priority,
+  .wl-col-priority-h {
+    display: none;
+  }
+
+  .wl-controls-row {
+    gap: 3px;
+  }
+
+  .wl-episode-grid {
+    gap: 3px;
+  }
+
+  .wl-episode-box {
+    width: 30px;
+    height: 30px;
+    font-size: 10px;
+  }
+}
+
+@media (max-width: 600px) {
+    .wl-accordion-header {
+        flex-wrap: wrap;
+    }
+    .wl-acc-header-left {
+        width: 100%;
+        margin-bottom: 6px;
+    }
+    .wl-acc-right-group {
+        width: 100%;
+    }
+}
+
+/* ════════════════════════════════════════════════════════
+   NEW IN 0.3.0
+   ════════════════════════════════════════════════════════ */
+
+/* ── +Add / Edit button dropdown ────────────────────────── */
+.wl-add-btn-wrap {
+  position: relative;
+}
+
+.wl-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 200;
+  background: var(--background-primary);
+  border: 0.5px solid var(--background-modifier-border);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+  min-width: 168px;
+  padding: 4px 0;
+}
+
+.wl-dropdown-item {
+  padding: 7px 14px;
+  cursor: pointer;
+  font-size: var(--font-ui-small);
+  color: var(--text-normal);
+  transition: background 0.1s;
+  white-space: nowrap;
+}
+
+.wl-dropdown-item:hover {
+  background: var(--background-modifier-hover);
+}
+
+/* ── Group header row ────────────────────────────────────── */
+.wl-table .wl-group-row {
+    background: transparent;
+    border: 2px solid var(--wl-group-border-overlay);
+    border-left: 4px solid var(--wl-accent);
+    border-right: 4px solid var(--wl-accent);
+}
+
+.wl-group-name {
+  font-weight: 600;
+}
+
+.wl-group-stats {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* ── Indented member rows (inside expanded group) ────────── */
+.wl-row-indented {
+  padding-left: 24px;
+  background: var(--background-primary-alt);
+  border-left: 2px solid var(--background-modifier-border);
+}
+
+/* ── Per-title stats: right-side group (3 stat blocks + progress) ── */
+.wl-acc-right-group {
+  display: flex;
+  flex-direction: row;
+  gap: 20px;
+  flex-shrink: 0;
+  align-items: flex-start;
+  background: rgb(0 0 0 / 5%);
+  border: 1px solid rgb(255 255 255 / 15%);
+  border-radius: 6px;
+  padding: 6px 6px;
+  font-size: 5px;
+}
+
+/* Each stat block (left / watched / episodes) — centered under their numbers */
+.wl-acc-stat-block {
+  flex-shrink: 0;
+  text-align: center;
+  min-width: 50px;
+}
+
+/* ════════════════════════════════════════════════════════
+   MINIMAL WIDGET
+   ════════════════════════════════════════════════════════ */
+
+.wl-widget-minimal {
+  display: inline-flex;
+  margin: 2px 0;
+}
+
+.wl-widget-minimal-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border: 0.5px solid var(--background-modifier-border);
+  border-radius: 20px;
+  background: var(--background-secondary);
+  white-space: nowrap;
+}
+
+/* ════════════════════════════════════════════════════════
+   GROUP ACTION BUTTONS (rename / delete)
+   ════════════════════════════════════════════════════════ */
+
+.wl-group-name-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.wl-group-action-btn {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0.5px solid var(--background-modifier-border);
+  border-radius: 3px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.wl-group-action-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+  border-color: var(--interactive-accent);
+}
+
+.wl-group-action-btn-delete {
+  border-color: transparent;
+}
+
+.wl-group-action-btn-delete:hover {
+  background: var(--background-modifier-error);
+  color: white;
+  border-color: var(--text-error);
+}
+
+.wl-group-rename-input {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 6px;
+  border: 0.5px solid var(--interactive-accent);
+  border-radius: 4px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+  font-weight: 600;
+}
+
+.wl-group-rename-input:focus {
+  outline: none;
+}
+
+/* ════════════════════════════════════════════════════════
+   AIRTIME TAB
+   ════════════════════════════════════════════════════════ */
+
+.wl-airtime {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* ── Cards container ─────────────────────────────────── */
+.wl-airtime-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+/* ── Single card ─────────────────────────────────────── */
+.wl-airtime-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 6px;
+  border: 0.5px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-secondary);
+  transition: background 0.1s;
+}
+
+.wl-airtime-card:hover {
+  background: var(--background-modifier-hover);
+}
+
+.wl-airtime-card-missed {
+  background: color-mix(in srgb, var(--background-secondary) 92%, #E24B4A 8%);
+  border-color: color-mix(in srgb, var(--background-modifier-border) 70%, #E24B4A 30%);
+}
+
+/* ── Left section ────────────────────────────────────── */
+.wl-airtime-card-left {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.wl-airtime-card-title {
+  font-weight: 600;
+  font-size: var(--font-ui-small);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wl-airtime-card-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.wl-airtime-schedule {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.wl-airtime-ep-info {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--background-primary);
+  border: 0.5px solid var(--background-modifier-border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  display: inline-block;
+  width: fit-content;
+}
+
+/* ── Right section ───────────────────────────────────── */
+.wl-airtime-card-right {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+/* ── Countdown pill ──────────────────────────────────── */
+.wl-airtime-pill {
+  padding: 2px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.wl-airtime-pill-today {
+  background: #7F77DD;
+  color: #fff;
+}
+
+.wl-airtime-pill-tomorrow {
+  background: #1D9E75;
+  color: #fff;
+}
+
+.wl-airtime-pill-days {
+  background: var(--background-primary);
+  color: var(--text-muted);
+  border: 0.5px solid var(--background-modifier-border);
+}
+
+.wl-airtime-pill-missed {
+  background: transparent;
+  color: #E24B4A;
+  border: 0.5px solid #E24B4A;
+}
+
+.wl-airtime-pill-today-series {
+  background: #EEEDFE;
+  color: #3C3489;
+  border: 0.5px solid #AFA9EC;
+}
+
+.wl-airtime-pill-aired {
+  background: #FAEEDA;
+  color: #633806;
+  border: 0.5px solid #FAC775;
+}
+
+.wl-airtime-pill-due {
+  background: #FCEBEB;
+  color: #791F1F;
+  border: 0.5px solid #F7C1C1;
+}
+
+/* ── Episode badge ───────────────────────────────────── */
+.wl-ep-badge {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  width: fit-content;
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  background: #EEEDFE;
+  color: #3C3489;
+  border: 0.5px solid #AFA9EC;
+}
+
+.wl-ep-badge-final {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  width: fit-content;
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  background: #FCEBEB;
+  color: #791F1F;
+  border: 0.5px solid #F7C1C1;
+}
+
+/* ── Schedule hint text ──────────────────────────────── */
+.wl-schedule-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* ── Action buttons ──────────────────────────────────── */
+.wl-airtime-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.wl-airtime-action-btn {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0.5px solid var(--background-modifier-border);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--text-muted);
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.wl-airtime-action-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+  border-color: var(--interactive-accent);
+}
+
+.wl-airtime-action-btn-delete:hover {
+  background: #E24B4A;
+  color: #fff;
+  border-color: #E24B4A;
+}
+
+/* ── Tick (complete) button ───────────────────────────────── */
+.wl-airtime-action-btn-tick {
+  color: #1D9E75;
+  border-color: #1D9E75;
+  font-size: 14px;
+}
+
+.wl-airtime-action-btn-tick:hover {
+  background: #1D9E75;
+  color: #fff;
+  border-color: #1D9E75;
+}
+
+/* ── Time input — wide enough for HH:MM ──────────────────── */
+.wl-time-input {
+  min-width: 110px;
+  max-width: 130px;
+  flex: unset;
+}
+
+/* ── JST clock display ───────────────────────────────────── */
+.wl-jst-clock {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+  padding-left: 4px;
+}
+
+/* ── Upcoming title count badge ──────────────────────────── */
+.wl-list-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.wl-list-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 20px;
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* ════════════════════════════════════════════════════════
+   RECTANGLE DASHBOARD CARDS
+   ════════════════════════════════════════════════════════ */
+
+.wl-rect-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  background: var(--background-secondary-alt);
+  border: 2px solid var(--wl-accent);
+  border-radius: 8px;
+}
+
+.wl-rect-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.wl-rect-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-normal);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wl-rect-unwatched {
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.wl-rect-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-normal);
+  line-height: 1;
+}
+
+.wl-rect-bar-wrap {
+  height: 3px;
+  background: var(--background-modifier-border);
+  border-radius: 2px;
+  overflow: hidden;
+  width: 100%;
+}
+
+.wl-rect-bar {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+/* ════════════════════════════════════════════════════════
+   SELECTION MODE
+   ════════════════════════════════════════════════════════ */
+
+/* Header controls area (right side of header) */
+.wl-header-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+/* Small button variant */
+.wl-btn-sm {
+  padding: 3px 8px;
+  font-size: 11px;
+}
+
+/* Active (selected) state for the selection mode toggle button */
+.wl-btn.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border-color: var(--interactive-accent);
+}
+
+/* Saved filter preset button — active state (green tint) */
+.wl-btn.wl-btn-preset-active {
+  background: rgba(29, 158, 117, 0.15);
+  border-color: #1D9E75;
+  color: #1D9E75;
+}
+
+/* Action bar container */
+.wl-action-bar {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* Selected row highlight */
+.wl-row-selected {
+  background: color-mix(in srgb, var(--background-secondary) 80%, var(--interactive-accent) 20%) !important;
+}
+
+/* Selection checkbox column */
+.wl-col-select-h,
+.wl-col-select {
+  width: 24px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Extend grid template when selection mode is active — see v0.5.5 override below */
+
+/* Airtime card selection checkbox */
+.wl-airtime-select-cb {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  cursor: pointer;
+  margin-right: 6px;
+}
+
+/* Make selected airtime cards have a subtle highlight */
+.wl-airtime-card.wl-row-selected {
+  background: color-mix(in srgb, var(--background-secondary) 80%, var(--interactive-accent) 20%);
+  border-color: var(--interactive-accent);
+}
+
+/* Due / Aired highlight borders — per theme */
+.wl-view:not([data-theme]) .wl-airtime-card.is-due,
+.wl-view:not([data-theme]) .wl-airtime-card.is-aired {
+  border: 2px solid #207119;
+}
+
+.wl-view[data-theme="nightfall"] .wl-airtime-card.is-due,
+.wl-view[data-theme="nightfall"] .wl-airtime-card.is-aired {
+  border: 2px solid #7B2CBF;
+}
+
+.wl-view[data-theme="bluez"] .wl-airtime-card.is-due,
+.wl-view[data-theme="bluez"] .wl-airtime-card.is-aired {
+  border: 2px solid #2C7DA0;
+}
+
+/* ════════════════════════════════════════════════════════
+   v0.5.5 NEW STYLES
+   ════════════════════════════════════════════════════════ */
+
+/* ── Dashboard overflow fix ─────────────────────────────── */
+.wl-tab-content {
+  min-height: 0;
+}
+
+.wl-dashboard > * {
+  flex-shrink: 0;
+}
+
+/* ── Priority column ────────────────────────────────────── */
+.wl-col-priority-h,
+.wl-col-priority {
+  font-size: 12px;
+  color: #ffffff;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: center;
+  justify-content: center;
+}
+
+.wl-priority-badge {
+  font-size: 10px;
+  font-weight: 600;
+}
+
+/* Selection mode — add checkbox column */
+.wl-table.wl-selection-mode .wl-table-header-row,
+.wl-table.wl-selection-mode .wl-row {
+  grid-template-columns: 24px 1fr 56px 72px 56px 90px 20px;
+}
+
+/* ── Row spacing ────────────────────────────────────────── */
+.wl-row:not(.wl-row-indented) {
+  margin-bottom: 3px;
+}
+
+/* ── Pin icon ───────────────────────────────────────────── */
+.wl-col-pin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  flex-shrink: 0;
+}
+
+.wl-pin-icon {
+  font-size: 12px;
+  opacity: 0.2;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  user-select: none;
+  line-height: 1;
+}
+
+.wl-pin-icon:hover,
+.wl-pin-icon.is-pinned {
+  opacity: 1;
+}
+
+/* ── Link icon in accordion ─────────────────────────────── */
+.wl-acc-link-icon {
+  font-size: 13px;
+  text-decoration: none;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.wl-acc-link-icon:hover {
+  opacity: 1;
+}
+
+/* ── wl-stat widget ─────────────────────────────────────── */
+.wl-wstat {
+  display: inline-block;
+  margin: 2px 0;
+}
+
+.wl-stat-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 0.5px solid var(--background-modifier-border);
+  border-radius: 20px;
+  background: var(--background-secondary);
+  white-space: nowrap;
+}
+
+.wl-stat-icon {
+  font-size: 13px;
+}
+
+.wl-stat-value {
+  font-weight: 700;
+  font-size: var(--font-ui-small);
+  color: var(--text-normal);
+}
+
+.wl-stat-label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.wl-stat-sep {
+  color: var(--text-faint);
+  margin: 0 2px;
+}
+
+/* ── Full cards (140×55px base) ─────────────────────────── */
+.wl-full-card {
+  display: flex;
+  flex-direction: column;
+  width: 160px;
+  height: 70px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--background-secondary);
+  border: 0.5px solid var(--background-modifier-border);
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.wl-full-card-header {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 2px;
+}
+
+.wl-full-card-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-normal);
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.wl-full-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-normal);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 2px;
+}
+
+.wl-full-card-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 1px;
+  white-space: nowrap;
+}
+
+.wl-full-card-sub-sep {
+  color: var(--text-faint);
+}
+
+.wl-full-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 9px;
+  color: var(--text-muted);
+  margin-top: auto;
+}
+
+.wl-full-card-bar-wrap {
+  height: 3px;
+  background: var(--background-modifier-border);
+  border-radius: 2px;
+  margin-top: 4px;
+  overflow: hidden;
+}
+
+.wl-full-card-bar {
+  height: 100%;
+  background: var(--interactive-accent);
+  border-radius: 2px;
+}
+
+/* ── Time full card (280×55px, two-column) ──────────────── */
+.wl-full-card-time {
+  width: 320px;
+}
+
+.wl-full-card-time-cols {
+  display: flex;
+  gap: 10px;
+  flex: 1;
+}
+
+.wl-full-card-time-col {
+  flex: 1;
+  min-width: 0;
+}
+
+.wl-full-card-days {
+  font-size: 15px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* ── wl-upcoming widget ─────────────────────────────────── */
+.wl-wupcoming {
+  display: inline-block;
+  margin: 2px 0;
+}
+
+.wl-upcoming-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 0.5px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--background-secondary);
+  white-space: nowrap;
+  flex-wrap: wrap;
+}
+
+.wl-upcoming-empty {
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: var(--font-ui-small);
+}
+
+.wl-upcoming-title {
+  font-weight: 600;
+  font-size: var(--font-ui-small);
+}
+
+.wl-upcoming-date {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.wl-upcoming-countdown {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--interactive-accent);
+}
+
+/* ── wl-nowwatching widget ──────────────────────────────── */
+.wl-wnowwatching {
+  display: inline-block;
+  margin: 2px 0;
+}
+
+.wl-nowwatching-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 0.5px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--background-secondary);
+  white-space: nowrap;
+  flex-wrap: wrap;
+}
+
+.wl-nowwatching-empty {
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: var(--font-ui-small);
+}
+
+.wl-nowwatching-title {
+  font-weight: 600;
+  font-size: var(--font-ui-small);
+}
+
+.wl-nowwatching-ep {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.wl-nowwatching-bar-wrap {
+  width: 60px;
+  height: 4px;
+  background: var(--background-modifier-border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.wl-nowwatching-bar {
+  height: 100%;
+  background: var(--interactive-accent);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.wl-nowwatching-pct {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* ── wl-nowwatching full layout ─────────────────────────── */
+.wl-full-card-nw {
+  height: auto;
+  width: 200px;
+}
+
+.wl-nw-bottom-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.wl-nw-bar-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  min-width: 0;
+}
+
+.wl-nw-pct {
+  font-size: 9px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* ── Shared vertical separator ──────────────────────────── */
+.wl-vert-sep {
+  width: 1px;
+  background: var(--background-modifier-border);
+  align-self: stretch;
+  flex-shrink: 0;
+  margin: 0 4px;
+}
+
+/* ── wl-stat: time completed full (triple card) ─────────── */
+.wl-wstat.wl-wstat-triple {
+  display: block;
+}
+
+.wl-full-card-triple {
+  width: 100%;
+  height: auto;
+  padding: 8px 10px;
+}
+
+.wl-triple-cols {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+}
+
+.wl-triple-col {
+  flex: 1;
+  min-width: 0;
+  padding: 0 8px;
+}
+
+.wl-triple-col:first-child {
+  padding-left: 0;
+}
+
+/* ── wl-now-next (combined now watching + up next) ──────── */
+.wl-wnownext {
+  display: block;
+  margin: 2px 0;
+}
+
+.wl-full-card-now-next {
+  width: 100%;
+  height: auto;
+  padding: 8px 10px;
+}
+
+.wl-double-cols {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+}
+
+.wl-double-col {
+  flex: 1;
+  min-width: 0;
+  padding: 0 8px;
+}
+
+.wl-double-col:first-child {
+  padding-left: 0;
+}
+
+/* ── Widgets settings tab ───────────────────────────────── */
+.wl-widget-info-section {
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  border: 0.5px solid var(--background-modifier-border);
+  border-radius: 6px;
+}
+
+.wl-widget-info-name {
+  font-size: 13px;
+  font-weight: 700;
+  font-family: var(--font-monospace);
+  color: var(--text-normal);
+  margin-bottom: 4px;
+}
+
+.wl-widget-info-desc {
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.wl-widget-info-code-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.wl-widget-info-code {
+  flex: 1;
+  font-size: 11px;
+  background: var(--background-primary-alt);
+  padding: 4px 8px;
+  border-radius: 4px;
+  white-space: pre;
+  color: var(--text-muted);
+  font-family: var(--font-monospace);
+}
+
+/* ════════════════════════════════════════════════════════
+   THEME SYSTEM — CSS VARIABLES
+   ════════════════════════════════════════════════════════ */
+
+/* Default theme: plugin-specific accent vars only */
+.wl-view {
+  --wl-accent: hsl(258deg 6.48% 13.98%);
+  --wl-rating-color: #BA7517;
+  --wl-watched-color: #1D9E75;
+  --wl-group-border-overlay: rgb(0 0 0 / 20%);
+}
+
+/* Nightfall theme — accent colors only, no background/text overrides */
+.wl-view[data-theme="nightfall"] {
+  --wl-accent: #4b246c;
+  --wl-rating-color: #C77DFF;
+  --wl-watched-color: #7B2CBF;
+  --wl-group-border-overlay: rgba(92, 31, 154, 0.25);
+}
+
+/* Bluez theme — accent colors only, no background/text overrides */
+.wl-view[data-theme="bluez"] {
+  --wl-accent: #144a62;
+  --wl-rating-color: #61A5C2;
+  --wl-watched-color: #2C7DA0;
+  --wl-group-border-overlay: rgba(1, 73, 124, 0.3);
+}
+
+/* ════════════════════════════════════════════════════════
+   THEME PICKER (Settings → Customize)
+   ════════════════════════════════════════════════════════ */
+
+.wl-theme-cards {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+.wl-theme-card {
+  flex: 1;
+  min-width: 90px;
+  border: 1.5px solid var(--background-modifier-border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  background: var(--background-secondary);
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.wl-theme-card:hover {
+  border-color: var(--interactive-accent);
+  background: var(--background-modifier-hover);
+}
+
+.wl-theme-card.is-selected {
+  border-color: var(--interactive-accent);
+  background: color-mix(in srgb, var(--background-secondary) 80%, var(--interactive-accent) 20%);
+}
+
+.wl-theme-card-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-normal);
+  margin-bottom: 6px;
+}
+
+.wl-theme-strip {
+  display: flex;
+  gap: 2px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.wl-theme-swatch {
+  flex: 1;
+  height: 12px;
+}
+
+/* ════════════════════════════════════════════════════════
+   FILTERS DROPDOWN PANEL
+   ════════════════════════════════════════════════════════ */
+
+.wl-filters-panel {
+  min-width: 240px;
+  padding: 8px 0;
+}
+
+.wl-filter-global-btns {
+  display: flex;
+  gap: 6px;
+  padding: 4px 12px 8px;
+  border-bottom: 0.5px solid var(--background-modifier-border);
+  margin-bottom: 4px;
+}
+
+.wl-filter-section {
+  padding: 0;
+}
+
+/* QoL 3 — Collapsible section header */
+.wl-filter-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px 4px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.wl-filter-section-header:hover {
+  background: var(--background-modifier-hover);
+}
+
+.wl-filter-section-header .wl-filter-label {
+  margin-bottom: 0;
+  width: auto;
+}
+
+.wl-filter-chevron {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.wl-filter-section-content {
+  display: block;
+  padding: 2px 12px 6px;
+}
+
+.wl-filter-section .wl-filter-label {
+  display: block;
+  margin-bottom: 4px;
+  width: auto;
+}
+
+.wl-filter-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.wl-filter-checkbox-row input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
+}
+
+.wl-sorting-panel {
+  min-width: 200px;
+  padding: 8px 0;
+}
+
+.wl-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+}
+
+.wl-filter-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  width: 54px;
+  flex-shrink: 0;
+}
+
+.wl-filter-row .wl-select {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ════════════════════════════════════════════════════════
+   SUGGESTIONS SECTION (Dashboard)
+   ════════════════════════════════════════════════════════ */
+
+.wl-suggestions {
+  margin-bottom: 16px;
+}
+
+.wl-suggestions-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.wl-suggestions-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.wl-suggestion-card {
+  border: 0.5px solid var(--background-modifier-border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: var(--background-secondary);
+}
+
+.wl-suggestion-label {
+  font-size: 10px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+}
+
+.wl-suggestion-title {
+  font-size: 13px;
+  color: var(--text-normal);
+  font-weight: 500;
+  word-break: break-word;
+}
+
+.wl-suggestion-empty {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.wl-suggestion-random-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.wl-suggestion-shuffle {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 2px;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+
+.wl-suggestion-shuffle:hover {
+  opacity: 1;
+}
+
+/* ════════════════════════════════════════════════════════
+   CSV IMPORT / EXPORT MODAL
+   ════════════════════════════════════════════════════════ */
+
+.wl-csv-modal {
+  min-width: 420px;
+}
+
+.wl-csv-ctrl-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.wl-csv-count {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.wl-csv-list {
+  max-height: 300px;
+  overflow-y: auto;
+  border: 0.5px solid var(--background-modifier-border);
+  border-radius: 4px;
+  margin-bottom: 12px;
+}
+
+.wl-csv-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 0.5px solid var(--background-modifier-border);
+}
+
+.wl-csv-row:last-child {
+  border-bottom: none;
+}
+
+.wl-csv-row:hover {
+  background: var(--background-modifier-hover);
+}
+
+.wl-csv-row-dupe {
+  background: color-mix(in srgb, var(--background-modifier-error) 40%, transparent 60%);
+}
+
+.wl-csv-row-dupe:hover {
+  background: color-mix(in srgb, var(--background-modifier-error) 55%, transparent 45%);
+}
+
+.wl-csv-row-title {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text-normal);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wl-csv-row-meta {
+  font-size: 11px;
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+.wl-csv-dupe-badge {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: color-mix(in srgb, #E24B4A 20%, transparent 80%);
+  color: #E24B4A;
+  flex-shrink: 0;
+}
+
+.wl-csv-dupe-warning {
+  font-size: 12px;
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--background-modifier-error) 30%, transparent 70%);
+  border-radius: 4px;
+  padding: 6px 10px;
+  margin-bottom: 8px;
+}
+
+.wl-csv-drop-zone {
+  border: 1.5px dashed var(--background-modifier-border);
+  border-radius: 6px;
+  padding: 20px;
+  text-align: center;
+  margin-bottom: 12px;
+}
+
+.wl-csv-drop-label {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+.wl-csv-file-input {
+  display: block;
+  margin: 0 auto;
+  font-size: 12px;
+}
+
+.wl-csv-preview {
+  margin-bottom: 8px;
+}
+
+.wl-csv-step {
+  margin-bottom: 8px;
+}
+
+.wl-csv-step-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-normal);
+  margin-bottom: 4px;
+}
+
+.wl-csv-step-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.wl-csv-info-note {
+  font-size: 11px;
+  color: var(--text-faint);
+  background: var(--background-primary-alt);
+  border-left: 2px solid var(--background-modifier-border);
+  padding: 5px 8px;
+  border-radius: 3px;
+  margin-bottom: 12px;
+}
+
+.wl-csv-map-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.wl-csv-map-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.wl-csv-map-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  width: 70px;
+  flex-shrink: 0;
+}
+
+.wl-csv-map-select {
+  flex: 1;
+}
+
+.wl-csv-preview-btn {
+  display: block;
+  margin-left: auto;
+}
+
+.wl-csv-btn-row {
+  flex-direction: row !important;
+  justify-content: flex-end;
+}
+
+/* ── Value mapping step ──────────────────────────────────── */
+
+.wl-csv-valmap-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-faint);
+  margin: 12px 0 6px;
+}
+
+.wl-csv-valmap-section-title:first-of-type {
+  margin-top: 4px;
+}
+
+.wl-csv-valmap-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.wl-csv-valmap-orig {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-normal);
+  min-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wl-csv-valmap-arrow {
+  font-size: 12px;
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+.wl-csv-valmap-select {
+  flex: 1;
+}
+
+.wl-csv-valmap-btn-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 14px;
+  gap: 8px;
+}
+
+/* ── Import progress bar ─────────────────────────────────── */
+
+.wl-csv-bg-note {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-style: italic;
+  display: block;
+  margin-bottom: 6px;
+  flex-basis: 100%;
+}
+
+.wl-csv-progress-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.wl-csv-progress-track {
+  flex: 1;
+  height: 6px;
+  background: var(--background-modifier-border);
+  border-radius: 3px;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.wl-csv-progress-fill {
+  height: 100%;
+  background: var(--interactive-accent);
+  border-radius: 3px;
+  width: 0%;
+  transition: width 0.1s ease;
+}
+
+.wl-csv-progress-text {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  min-width: 80px;
+  text-align: right;
+}
+
+/* ── Settings regenerate progress bar ───────────────────── */
+
+.wl-regen-progress-wrap {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 8px 0;
+  padding: 0 2px;
+}
+
+/* ── Header import progress bar ─────────────────────────── */
+
+.wl-header-import-progress {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  margin: 0 10px;
+  max-width: 240px;
+}
+
+.wl-header-import-track {
+  flex: 1;
+  height: 4px;
+  background: var(--background-modifier-border);
+  border-radius: 2px;
+  overflow: hidden;
+  min-width: 40px;
+}
+
+.wl-header-import-fill {
+  height: 100%;
+  background: var(--interactive-accent);
+  border-radius: 2px;
+  transition: width 0.15s ease;
+  width: 0%;
+}
+
+.wl-header-import-text {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* ════════════════════════════════════════════════════════
+   CUSTOM LISTS TAB (v0.8.0)
+   ════════════════════════════════════════════════════════ */
+
+.wl-custom-lists {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-height: 0;
+  flex: 1;
+}
+
+/* ── Empty state ──────────────────────────────────────────── */
+.wl-cl-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 40px 20px;
+}
+
+.wl-cl-empty-text {
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+/* ── Sub-tab bar ──────────────────────────────────────────── */
+.wl-cl-sub-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 2px 0;
+  border-bottom: 0.5px solid var(--background-modifier-border);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.wl-cl-sub-tab {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 4px 4px 0 0;
+  cursor: pointer;
+  background: var(--background-secondary);
+  border: 0.5px solid var(--background-modifier-border);
+  border-bottom: none;
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+  transition: background 0.12s, color 0.12s;
+  position: relative;
+  margin-bottom: -0.5px;
+}
+
+.wl-cl-sub-tab:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.wl-cl-sub-tab.is-active {
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-weight: 600;
+  border-bottom: 0.5px solid var(--background-primary);
+}
+
+.wl-cl-sub-tab-name {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.wl-cl-sub-tab-del {
+  font-size: 13px;
+  line-height: 1;
+  color: var(--text-faint);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s, color 0.12s;
+  flex-shrink: 0;
+}
+
+.wl-cl-sub-tab:hover .wl-cl-sub-tab-del {
+  opacity: 1;
+}
+
+.wl-cl-sub-tab-del:hover {
+  color: var(--text-error);
+}
+
+.wl-cl-sub-tab-add {
+  padding: 3px 10px;
+  border-radius: 4px;
+  border: 0.5px dashed var(--background-modifier-border);
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  transition: color 0.12s, border-color 0.12s;
+}
+
+.wl-cl-sub-tab-add:hover {
+  color: var(--text-normal);
+  border-color: var(--interactive-accent);
+}
+
+.wl-cl-sub-tab-rename {
+  max-width: 100px;
+  padding: 1px 4px;
+  border: 0.5px solid var(--interactive-accent);
+  border-radius: 3px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+  font-weight: 600;
+}
+
+.wl-cl-sub-tab-rename:focus {
+  outline: none;
+}
+
+/* ── List view ────────────────────────────────────────────── */
+.wl-cl-list-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding-top: 8px;
+}
+
+/* ── Header ───────────────────────────────────────────────── */
+.wl-cl-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  gap: 8px;
+}
+
+.wl-cl-count {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.wl-cl-toolbar {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  position: relative;
+}
+
+/* ── Draft banner ─────────────────────────────────────────── */
+.wl-cl-draft-banner {
+  margin: 6px 0;
+  padding: 6px 10px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--background-secondary) 80%, #BA7517 20%);
+  border: 0.5px solid color-mix(in srgb, var(--background-modifier-border) 60%, #BA7517 40%);
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+/* ── Table ────────────────────────────────────────────────── */
+.wl-cl-table-wrap {
+  flex: 1;
+  overflow-x: auto;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.wl-cl-table {
+  border: 0.5px solid var(--background-modifier-border);
+  border-radius: 6px;
+  overflow: hidden;
+  width: 100%;
+}
+
+.wl-cl-thead {
+  background: var(--background-secondary);
+  border-bottom: 0.5px solid var(--background-modifier-border);
+}
+
+.wl-cl-tr {
+  display: flex;
+  align-items: stretch;
+}
+
+.wl-cl-tr-header {
+  padding: 4px 6px;
+}
+
+.wl-cl-tr-body {
+  padding: 3px 6px;
+  border-bottom: 0.5px solid var(--background-modifier-border);
+  transition: background 0.1s;
+  min-height: 28px;
+  align-items: center;
+}
+
+.wl-cl-tr-body:last-child {
+  border-bottom: none;
+}
+
+.wl-cl-tr-body:hover {
+  background: var(--background-modifier-hover);
+}
+
+.wl-cl-tr-body:hover .wl-cl-row-action {
+  opacity: 1;
+}
+
+.wl-cl-th {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 2px 6px;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wl-cl-th-num {
+  flex: 0 0 28px;
+  text-align: center;
+}
+
+.wl-cl-th-actions {
+  flex: 0 0 64px;
+}
+
+.wl-cl-td {
+  font-size: var(--font-ui-small);
+  padding: 2px 6px;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.wl-cl-td-num {
+  flex: 0 0 28px;
+  font-size: 11px;
+  color: var(--text-faint);
+  text-align: center;
+  justify-content: center;
+  cursor: default;
+}
+
+.wl-cl-td-name {
+  font-weight: 500;
+}
+
+.wl-cl-td-actions {
+  flex: 0 0 64px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  justify-content: flex-end;
+  cursor: default;
+  overflow: visible;
+}
+
+/* ── Row actions ──────────────────────────────────────────── */
+.wl-cl-row-action {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity 0.12s, background 0.12s, color 0.12s;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.wl-cl-drag-handle {
+  cursor: grab;
+  font-size: 14px;
+}
+
+.wl-cl-drag-handle:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+.wl-cl-dup-btn:hover {
+  color: var(--interactive-accent);
+  background: var(--background-modifier-hover);
+}
+
+.wl-cl-row-del:hover {
+  color: var(--text-on-accent);
+  background: #E24B4A;
+}
+
+/* ── Drag state ───────────────────────────────────────────── */
+.wl-cl-dragging {
+  opacity: 0.4;
+}
+
+.wl-cl-drag-over {
+  border-top: 2px solid var(--interactive-accent) !important;
+}
+
+/* ── Cell content ─────────────────────────────────────────── */
+.wl-cl-cell-text {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.wl-cl-cell-empty {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.wl-cl-dup-name {
+  color: #E24B4A;
+}
+
+/* ── Editing state ────────────────────────────────────────── */
+.wl-cl-editing {
+  padding: 0 4px !important;
+  overflow: visible;
+  z-index: 10;
+  position: relative;
+}
+
+.wl-cl-cell-input {
+  width: 100%;
+  padding: 2px 5px;
+  border: 0.5px solid var(--interactive-accent);
+  border-radius: 3px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+  outline: none;
+  box-sizing: border-box;
+}
+
+.wl-cl-cell-select {
+  width: 100%;
+  padding: 2px 4px;
+  font-size: var(--font-ui-small);
+}
+
+/* ── Autofill dropdown ────────────────────────────────────── */
+.wl-cl-autofill-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.wl-cl-autofill-wrap .wl-cl-cell-input {
+  width: 100%;
+}
+
+.wl-cl-autofill-dropdown {
+  /* position/top/left/width are set inline via JS (fixed, body-level) */
+  max-height: 180px;
+  overflow-y: auto;
+  background: var(--background-primary);
+  border: 0.5px solid var(--background-modifier-border);
+  border-radius: 5px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.18);
+  z-index: 9999;
+}
+
+/* ── Select badge (neutral, no color) ────────────────────── */
+.wl-cl-select-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--background-secondary);
+  border: 0.5px solid var(--background-modifier-border);
+  color: var(--text-normal);
+  white-space: nowrap;
+}
+
+/* ── Add row footer ───────────────────────────────────────── */
+.wl-cl-add-row {
+  padding: 6px 2px;
+  border-top: 0.5px solid var(--background-modifier-border);
+}
+
+/* ── Sort panel ───────────────────────────────────────────── */
+.wl-cl-sort-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 200;
+  background: var(--background-primary);
+  border: 0.5px solid var(--background-modifier-border);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.18);
+  min-width: 200px;
+  padding: 6px 0;
+}
+
+/* ════════════════════════════════════════════════════════
+   EDIT COLUMNS MODAL (v0.8.0)
+   ════════════════════════════════════════════════════════ */
+
+.wl-editcols-modal {
+  min-width: 460px;
+}
+
+.wl-editcols-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+  max-height: 380px;
+  overflow-y: auto;
+}
+
+.wl-editcols-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  border: 0.5px solid var(--background-modifier-border);
+  border-radius: 5px;
+  background: var(--background-secondary);
+}
+
+.wl-editcols-row-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+
+.wl-editcols-row.wl-cl-drag-over {
+  border-top-color: var(--interactive-accent);
+  border-top-width: 2px;
+}
+
+.wl-editcols-handle {
+  cursor: grab;
+  color: var(--text-faint);
+  font-size: 16px;
+  padding: 2px 0;
+  flex-shrink: 0;
+  user-select: none;
+  line-height: 1.4;
+}
+
+.wl-editcols-handle:hover {
+  color: var(--text-muted);
+}
+
+.wl-editcols-name {
+  flex: 1;
+  min-width: 100px;
+  max-width: 300px;
+}
+
+.wl-editcols-type {
+  flex: 0 0 90px;
+}
+
+.wl-editcols-extra {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.wl-editcols-toggle {
+  font-size: 12px;
+  padding: 2px 7px;
+}
+
+.wl-editcols-opts-area {
+  padding-left: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 150px;
+}
+
+.wl-editcols-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+.wl-editcols-opt-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  margin-left: 282px;
+}
+
+.wl-editcols-opt-del {
+  flex-shrink: 0;
+  padding: 1px 5px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+.wl-editcols-opt-del:hover {
+  color: var(--text-error);
+}
+
+.wl-editcols-del {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.wl-editcols-add-btn {
+  margin-bottom: 10px;
+}
+
+.wl-cl-name-error {
+  font-size: 12px;
+  color: var(--text-error);
+  margin: -4px 0 6px;
+}
+
+/* ── Notes modal ─────────────────────────────────────────── */
+
+.wl-notes-modal {
+  display: flex;
+  flex-direction: column;
+}
+
+.wl-notes-mode-bar {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.wl-notes-edit-area {
+  display: flex;
+  flex-direction: column;
+}
+
+.wl-modal-textarea.wl-notes-textarea {
+  width: 100%;
+  min-height: 220px;
+  resize: vertical;
+  font-family: var(--font-monospace);
+  font-size: 13px;
+  padding: 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  box-sizing: border-box;
+  margin-bottom: 12px;
+}
+
+.wl-notes-preview-area {
+  min-height: 160px;
+  max-height: 420px;
+  overflow-y: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-primary);
+  margin-bottom: 12px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+/* ── Edit Columns modal — mobile responsive ──────────────── */
+
+@media (max-width: 480px) {
+  .wl-editcols-modal {
+    min-width: unset;
+    width: 100%;
+  }
+
+  .wl-editcols-row-header {
+    flex-wrap: wrap;
+  }
+
+  .wl-editcols-name {
+    min-width: 80px;
+  }
+
+  .wl-editcols-type {
+    flex: 0 0 80px;
+  }
+
+  .wl-editcols-list {
+    max-height: 260px;
+  }
+}
+
+/* ── Clear filters button ────────────────────────────────── */
+
+.wl-btn-clear-filters {
+  color: var(--text-muted);
+}
+
+.wl-btn-clear-filters:hover {
+  color: var(--text-normal);
+}
+
+/* ── Filter active dot ───────────────────────────────────── */
+
+.wl-filter-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--interactive-accent);
+  vertical-align: middle;
+  margin-left: 3px;
+  margin-bottom: 1px;
+}
+
+/* ════════════════════════════════════════════════════════
+   DRAFTS TAB
+   ════════════════════════════════════════════════════════ */
+
+/* ── Notice banner (matches Custom Lists draft banner) ── */
+.wl-drafts-notice {
+  margin: 4px 0 10px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--background-secondary) 80%, #BA7517 20%);
+  border: 0.5px solid color-mix(in srgb, var(--background-modifier-border) 60%, #BA7517 40%);
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+/* ── Count label ─────────────────────────────────────── */
+.wl-drafts-count-label {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  margin-left: 4px;
+}
+
+/* ── Empty state ─────────────────────────────────────── */
+.wl-drafts-empty {
+  text-align: center;
+  padding: 32px 16px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* ── Cards list (mirrors .wl-airtime-cards) ──────────── */
+.wl-drafts-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+/* ── Single card (mirrors .wl-airtime-card) ──────────── */
+.wl-drafts-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 0.5px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-secondary);
+  transition: background 0.1s;
+}
+
+.wl-drafts-card:hover {
+  background: var(--background-modifier-hover);
+}
+
+/* ── Title ───────────────────────────────────────────── */
+.wl-drafts-card-title {
+  font-weight: 600;
+  font-size: var(--font-ui-small);
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Source note link ────────────────────────────────── */
+.wl-drafts-card-source {
+  flex-shrink: 0;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wl-drafts-source-link {
+  color: var(--text-accent);
+  cursor: pointer;
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+}
+
+.wl-drafts-source-link:hover {
+  text-decoration: underline;
+}
+
+.wl-drafts-source-count {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  cursor: help;
+}
+
+/* ── "In Watchlist" indicator ────────────────────────── */
+.wl-drafts-card-dup {
+  flex-shrink: 0;
+  font-size: var(--font-ui-smaller);
+  font-weight: 500;
+  color: var(--color-red, #e24b4a);
+  min-width: 0;
+}
+
+/* ── Action buttons ──────────────────────────────────── */
+.wl-drafts-card-actions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.wl-drafts-added-label {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  font-style: italic;
+  padding: 2px 6px;
+  background: var(--background-modifier-border);
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.wl-drafts-dismiss {
+  color: var(--text-muted);
+}
+
+.wl-drafts-dismiss:hover {
+  color: var(--color-red, #e24b4a);
+}
+
+/* ── "In Watchlist" state — italic + dimmed (Fix 4) ──── */
+.wl-drafts-card-watchlist {
+  opacity: 0.55;
+  font-style: italic;
+}
+
+/* ── "Added" state ───────────────────────────────────── */
+.wl-drafts-card-added .wl-drafts-card-title {
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+/* ── Season total preview (Edit modal) ───────────────── */
+.wl-modal-season-total {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  font-style: italic;
+}
+
+/* ── Quick Info tab ──────────────────────────────────── */
+.wl-qi-section {
+  margin-bottom: 6px;
+}
+
+.wl-qi-section-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: var(--font-ui-small);
+  background: var(--background-secondary);
+  border: 0.5px solid var(--background-modifier-border);
+  user-select: none;
+}
+
+.wl-qi-section-header:hover {
+  background: var(--background-modifier-hover);
+}
+
+.wl-qi-chevron {
+  font-size: 10px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.wl-qi-section-label {
+  color: var(--text-normal);
+}
+
+.wl-qi-section-body {
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.wl-qi-banner {
+  padding: 8px 12px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--background-secondary) 80%, #1D9E75 20%);
+  border: 0.5px solid color-mix(in srgb, var(--background-modifier-border) 60%, #1D9E75 40%);
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.wl-qi-banner-heading {
+  font-weight: 600;
+  color: var(--text-normal);
+  margin-bottom: 3px;
+  font-size: 13px;
+}
+
+.wl-qi-banner-body {
+  white-space: pre-line;
+}
+
+/* ════════════════════════════════════════════════════════
+   LINT-REFACTORED UTILITY CLASSES
+   (Replaced inline style= assignments)
+   ════════════════════════════════════════════════════════ */
+
+/* AirtimeTab — time row top spacing */
+.wl-modal-row-mt {
+  margin-top: 10px;
+}
+
+/* AirtimeTab — cancel button right spacing */
+.wl-btn-mr {
+  margin-right: 6px;
+}
+
+/* DashboardTab — time rect bar full width */
+.wl-rect-bar-full {
+  width: 100%;
+}
+
+/* CustomListsTab — bold toggle button preview */
+.wl-editcols-bold-btn {
+  font-weight: bold;
+}
+
+/* CustomListsTab — italic toggle button preview */
+.wl-editcols-italic-btn {
+  font-style: italic;
+}
+
+/* CustomListsTab — bold cell text */
+.wl-cell-bold {
+  font-weight: 700;
+}
+
+/* CustomListsTab — italic cell text */
+.wl-cell-italic {
+  font-style: italic;
+}
+
+/* CustomListsTab — fixed-position autofill dropdown */
+.wl-pos-fixed {
+  position: fixed;
+}
+
+/* ListTab — inline group name input */
+.wl-group-name-input {
+  width: 110px;
+  font-size: 11px;
+  padding: 2px 6px;
+  flex: unset;
+}
+
+/* ListTab — filters panel popup (fixed, body-level) */
+.wl-filters-panel-popup {
+  position: fixed;
+  z-index: 9999;
+  max-height: 70vh;
+  overflow-y: auto;
+  background-color: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  padding: 8px;
+  min-width: 230px;
+  width: 230px;
+}
+
+/* ListTab — mobile sorting panel */
+.wl-sorting-panel-mobile {
+  position: fixed;
+  left: 8px;
+  right: 8px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+/* SettingsTab — hidden quick-info section body */
+.wl-qi-section-body-hidden {
+  display: none;
+}
+
+/* ── Inner sub-tab bar (Watchlist List/History, Upcoming Tracker/History/Maybe) ─ */
+.wl-inner-tab-bar {
+  display: flex;
+  gap: 2px;
+  padding: 6px 10px 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+  flex-shrink: 0;
+}
+
+.wl-inner-tab-btn {
+  padding: 4px 12px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: var(--font-ui-small);
+  font-weight: 500;
+  margin-bottom: -1px;
+}
+
+.wl-inner-tab-btn:hover { color: var(--text-normal); }
+.wl-inner-tab-btn.is-active {
+  color: var(--text-accent);
+  border-bottom-color: var(--text-accent);
+}
+
+/* ── Feature 1: Recently arrived label ──────────────────────────────────────── */
+.wl-badge-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.wl-recently-arrived {
+  font-size: 10px;
+  color: var(--color-green);
+  font-style: italic;
+  opacity: 0.85;
+}
+
+.wl-recently-arrived-filter {
+  color: var(--color-green);
+  font-size: 11px;
+}
+
+/* ── Feature 3: Watchlist History sub-tab ────────────────────────────────────── */
+.wl-history-list {
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.wl-history-entry {
+  font-size: 13px;
+  font-style: italic;
+  color: var(--text-muted);
+  padding: 3px 0;
+  line-height: 1.4;
+  border-bottom: none;
+  font-weight: 600;
+}
+
+.wl-history-empty {
+  padding: 16px 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* ── Feature 2: Upcoming History sub-tab ────────────────────────────────────── */
+.wl-history-banner {
+  background: var(--background-modifier-hover);
+}
+
+.wl-airtime-history-card {
+  opacity: 0.92;
+}
+
+/* ── Feature 2c: Maybe cards ─────────────────────────────────────────────────── */
+.wl-maybe-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--background-secondary);
+  border-radius: 6px;
+  margin-bottom: 6px;
+  border: 1px solid var(--background-modifier-border);
+  min-height: 0;
+}
+
+.wl-maybe-card.wl-airtime-card-aired {
+  border-color: var(--color-orange);
+  background: color-mix(in srgb, var(--color-orange) 6%, var(--background-secondary));
+}
+
+.wl-maybe-card-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.wl-maybe-card-title {
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wl-maybe-card-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* ── Feature 4: Sort direction toggle ───────────────────────────────────────── */
+.wl-sort-dir-btn {
+  min-width: 28px;
+  padding: 3px 6px;
+  font-size: 13px;
+}
+
+/* ── Feature 5: Custom Lists tick button ─────────────────────────────────────── */
+.wl-cl-th-tick {
+  width: 28px;
+  max-width: 28px;
+  flex-shrink: 0;
+  padding: 0 4px;
+}
+
+.wl-cl-td-tick {
+  width: 28px;
+  max-width: 28px;
+  flex-shrink: 0;
+  padding: 0 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.wl-cl-tick-btn {
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text-muted);
+  line-height: 1;
+  user-select: none;
+  transition: color 0.1s;
+}
+
+.wl-cl-tick-btn:hover { color: var(--color-green); }
+
+.wl-cl-tick-btn.is-checked {
+  color: var(--color-green);
+  font-weight: bold;
+}
+
+.wl-cl-tr-checked {
+  border-left: 3px solid var(--color-green) !important;
+  background: color-mix(in srgb, var(--color-green) 5%, transparent) !important;
+}
+
+
+
+.wl-hidden { display: none !important; }

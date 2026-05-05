@@ -48,13 +48,11 @@ export class WatchLogView extends ItemView {
 		return 'tv';
 	}
 
-	// eslint-disable-next-line @typescript-eslint/require-await -- onOpen must be async to match ItemView base class signature
 	async onOpen(): Promise<void> {
 		this.dataManager.onChange(this.dataChangeListener);
 		this.buildUI();
 	}
 
-	// eslint-disable-next-line @typescript-eslint/require-await -- onClose must be async to match ItemView base class signature
 	async onClose(): Promise<void> {
 		this.dataManager.offChange(this.dataChangeListener);
 		this.destroyDraftsTab();

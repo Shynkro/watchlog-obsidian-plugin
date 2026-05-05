@@ -294,8 +294,7 @@ export class AirtimeTab {
 		});
 
 		const deleteBtn = actions.createEl('button', { cls: 'wl-airtime-action-btn wl-airtime-action-btn-delete', text: '✕' });
-		// eslint-disable-next-line obsidianmd/ui/sentence-case
-		deleteBtn.title = 'Remove from Watchlist';
+		deleteBtn.title = 'Remove from watchlist';
 		deleteBtn.addEventListener('click', (e) => {
 			e.stopPropagation();
 			new ConfirmModal(this.plugin.app, `Remove "${title.title}" from Watchlist?`, () => {
@@ -381,8 +380,7 @@ export class AirtimeTab {
 			else new Notice('No external link set.');
 		});
 		const deleteBtn = right.createEl('button', { cls: 'wl-airtime-action-btn wl-airtime-action-btn-delete', text: '✕' });
-		// eslint-disable-next-line obsidianmd/ui/sentence-case
-		deleteBtn.title = 'Remove from Maybe';
+		deleteBtn.title = 'Remove from maybe';
 		deleteBtn.addEventListener('click', (e) => {
 			e.stopPropagation();
 			new ConfirmModal(this.plugin.app, `Remove "${mt.title}" from Maybe?`, () => {

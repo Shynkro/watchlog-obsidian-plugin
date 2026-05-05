@@ -176,7 +176,6 @@ export class WatchLogView extends ItemView {
 			// Always create a new instance when switching to Watchlist tab so that the
 			// container element is correct; state (filters, expandedId) is preserved
 			// via the instance kept on this.listTab during data-change refreshes.
-			this.listTab?.destroy();
 			this.listTab = new ListTab(this.tabContentEl, this.plugin, this.dataManager);
 			this.listTab.render();
 		} else if (this.activeTab === 'upcoming') {

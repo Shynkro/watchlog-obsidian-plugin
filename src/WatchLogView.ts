@@ -48,13 +48,11 @@ export class WatchLogView extends ItemView {
 		return 'tv';
 	}
 
-	// eslint-disable-next-line @typescript-eslint/require-await -- onOpen must be async to match ItemView base class signature
 	async onOpen(): Promise<void> {
 		this.dataManager.onChange(this.dataChangeListener);
 		this.buildUI();
 	}
 
-	// eslint-disable-next-line @typescript-eslint/require-await -- onClose must be async to match ItemView base class signature
 	async onClose(): Promise<void> {
 		this.dataManager.offChange(this.dataChangeListener);
 		this.destroyDraftsTab();
@@ -178,6 +176,7 @@ export class WatchLogView extends ItemView {
 			// Always create a new instance when switching to Watchlist tab so that the
 			// container element is correct; state (filters, expandedId) is preserved
 			// via the instance kept on this.listTab during data-change refreshes.
+			this.listTab?.destroy();
 			this.listTab = new ListTab(this.tabContentEl, this.plugin, this.dataManager);
 			this.listTab.render();
 		} else if (this.activeTab === 'upcoming') {

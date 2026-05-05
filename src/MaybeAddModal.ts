@@ -187,7 +187,7 @@ export class MaybeAddModal extends Modal {
 
 		const relRow = makeRow('Release date');
 		const relStack = relRow.createDiv({ cls: 'wl-modal-input-stack' });
-		const relInput = relStack.createEl('input', { cls: 'wl-modal-input', attr: { type: 'text', placeholder: 'dd/mm/yyyy or yyyy-mm-dd' } });
+		const relInput = relStack.createEl('input', { cls: 'wl-modal-input', attr: { type: 'text', placeholder: 'Date (dd-mm-yyyy or yyyy-mm-dd)' } });
 		relInput.value = this.fieldReleaseDate;
 		const relErrorEl = relStack.createDiv({ cls: 'wl-modal-error wl-hidden' });
 		relInput.addEventListener('change', () => {

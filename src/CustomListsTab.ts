@@ -745,7 +745,7 @@ export class CustomListsTab {
 		this.container.empty();
 		this.container.addClass('wl-custom-lists');
 
-		const rawNames = await this.manager.listNames();
+		const rawNames = this.manager.listNames();
 		this.listNames = this.applyTabOrder(rawNames);
 
 		if (this.listNames.length === 0) {

@@ -45,8 +45,7 @@ export class MaybeAddModal extends Modal {
 	}
 
 	onOpen(): void {
-		// eslint-disable-next-line obsidianmd/ui/sentence-case
-		this.titleEl.setText('Add to Maybe');
+		this.titleEl.setText('Add to maybe');
 		this.contentEl.addClass('wl-add-modal');
 		this.buildUI();
 	}
@@ -188,8 +187,7 @@ export class MaybeAddModal extends Modal {
 
 		const relRow = makeRow('Release date');
 		const relStack = relRow.createDiv({ cls: 'wl-modal-input-stack' });
-		// eslint-disable-next-line obsidianmd/ui/sentence-case
-		const relInput = relStack.createEl('input', { cls: 'wl-modal-input', attr: { type: 'text', placeholder: 'DD/MM/YYYY or YYYY-MM-DD' } });
+		const relInput = relStack.createEl('input', { cls: 'wl-modal-input', attr: { type: 'text', placeholder: 'dd/mm/yyyy or yyyy-mm-dd' } });
 		relInput.value = this.fieldReleaseDate;
 		const relErrorEl = relStack.createDiv({ cls: 'wl-modal-error wl-hidden' });
 		relInput.addEventListener('change', () => {
@@ -206,8 +204,7 @@ export class MaybeAddModal extends Modal {
 		linkInput.addEventListener('input', () => { this.fieldLink = linkInput.value; });
 
 		const btnRow = this.formEl.createDiv({ cls: 'wl-modal-btn-row' });
-		// eslint-disable-next-line obsidianmd/ui/sentence-case
-		const addBtn = btnRow.createEl('button', { cls: 'wl-btn wl-btn-primary', text: 'Add to Maybe' });
+		const addBtn = btnRow.createEl('button', { cls: 'wl-btn wl-btn-primary', text: 'Add to maybe' });
 		addBtn.addEventListener('click', () => void this.addMaybeTitle());
 	}
 

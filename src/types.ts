@@ -377,7 +377,7 @@ export function parseReleaseDateInput(str: string): string | null {
 	const trimmed = str.trim();
 	if (!trimmed) return null;
 	if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
-	// eslint-disable-next-line no-useless-escape
+	// eslint-disable-next-line no-useless-escape -- forward slash escaped for visual clarity in date regex
 	const m = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
 	if (m) {
 		const dd = m[1]!.padStart(2, '0');

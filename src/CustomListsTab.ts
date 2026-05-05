@@ -25,7 +25,7 @@ export class CustomListManager {
 		}
 	}
 
-	async listNames(): Promise<string[]> {
+	listNames(): string[] {
 		const dir = normalizePath(this.folderPath);
 		return this.app.vault.getFiles()
 			.filter(f => {

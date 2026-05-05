@@ -295,8 +295,7 @@ export class AddTitleModal extends Modal {
 		const relStack = relRow.createDiv({ cls: 'wl-modal-input-stack' });
 		const relInput = relStack.createEl('input', {
 			cls: 'wl-modal-input',
-			// eslint-disable-next-line obsidianmd/ui/sentence-case
-			attr: { type: 'text', placeholder: 'DD/MM/YYYY or YYYY-MM-DD' },
+			attr: { type: 'text', placeholder: 'dd/mm/yyyy or yyyy-mm-dd' },
 		});
 		relInput.value = this.fieldReleaseDate;
 		const relErrorEl = relStack.createDiv({ cls: 'wl-modal-error wl-hidden' });
@@ -314,8 +313,7 @@ export class AddTitleModal extends Modal {
 				relErrorEl.addClass('wl-hidden');
 			} else {
 				this.fieldReleaseDate = raw;
-				// eslint-disable-next-line obsidianmd/ui/sentence-case
-				relErrorEl.textContent = 'Unrecognised format. Expected DD/MM/YYYY or YYYY-MM-DD.';
+				relErrorEl.textContent = 'Unrecognised format. Expected dd/mm/yyyy or yyyy-mm-dd.';
 				relErrorEl.removeClass('wl-hidden');
 			}
 		});

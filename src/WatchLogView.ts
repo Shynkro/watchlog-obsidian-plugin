@@ -49,11 +49,13 @@ export class WatchLogView extends ItemView {
 	}
 
 	async onOpen(): Promise<void> {
-		this.dataManager.onChange(this.dataChangeListener);
-		this.buildUI();
+    	await super.onOpen();
+    	this.dataManager.onChange(this.dataChangeListener);
+    	this.buildUI();
 	}
 
 	async onClose(): Promise<void> {
+		await super.onClose();
 		this.dataManager.offChange(this.dataChangeListener);
 		this.destroyDraftsTab();
 	}

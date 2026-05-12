@@ -622,7 +622,7 @@ export class DataManager {
 
 	private buildMarkdownContent(title: WatchLogTitle, progress: number): string {
 		return `---
-title: "${title.title.replace(/"/g, '\\"')}"
+title: ${title.title.replace(/[*"\\/<>:|?]/g, '-')}
 type: ${title.type}
 status: ${title.status}
 priority: ${title.priority}

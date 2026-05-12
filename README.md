@@ -103,8 +103,6 @@ Widget state syncs bidirectionally with the Watchlist when the sync setting is e
 3. Copy the three files into that folder.
 4. In Obsidian, go to **Settings → Community plugins**, disable Safe mode if prompted, and enable **WatchLog**.
 
-### Community Plugins _(coming soon)_
-
 ---
 
 ## API Keys (Optional)

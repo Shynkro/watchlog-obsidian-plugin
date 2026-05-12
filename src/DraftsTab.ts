@@ -20,6 +20,9 @@ export class DraftsTab {
 	private onCountChange: (count: number) => void;
 
 	private eventRef: EventRef | null = null;
+	private destroyed = false;
+	private scanDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+	private lastScanEntries: LiveDraftEntry[] = [];
 	private persistState: DraftPersistState = {
 		dismissed: [],
 		added: [],
@@ -40,13 +43,23 @@ export class DraftsTab {
 	}
 
 	async render(): Promise<void> {
+		this.destroyed = false;
 		await this.loadPersistState();
+		if (this.destroyed) return;
+
 		const entries = await this.scanVault();
+		if (this.destroyed) return;
+
 		this.renderUI(entries);
 		this.registerChangeListener();
 	}
 
 	destroy(): void {
+		this.destroyed = true;
+		if (this.scanDebounceTimer) {
+			clearTimeout(this.scanDebounceTimer);
+			this.scanDebounceTimer = null;
+		}
 		if (this.eventRef) {
 			this.plugin.app.metadataCache.offref(this.eventRef);
 			this.eventRef = null;
@@ -103,7 +116,7 @@ export class DraftsTab {
 					const segments = afterTag.split(',');
 					for (const seg of segments) {
 						const displayTitle = seg.trim();
-						if (!displayTitle) continue;
+						if (!displayTitle || displayTitle.length > 100) continue;
 						const titleKey = displayTitle.toLowerCase();
 						if (!liveMap.has(titleKey)) {
 							liveMap.set(titleKey, { sources: new Set(), displayTitle });
@@ -148,21 +161,26 @@ export class DraftsTab {
 
 		// Sort oldest-first (FIFO queue)
 		entries.sort((a, b) => a.firstSeen.localeCompare(b.firstSeen));
+		this.lastScanEntries = entries;
 		return entries;
 	}
 
 	// ── Event listener ────────────────────────────────────────────────────────────
 
+	private triggerDebouncedRender(): void {
+		if (this.scanDebounceTimer) clearTimeout(this.scanDebounceTimer);
+		this.scanDebounceTimer = setTimeout(() => {
+			this.scanDebounceTimer = null;
+			void this.render();
+		}, 500);
+	}
+
 	private registerChangeListener(): void {
 		if (this.eventRef) {
 			this.plugin.app.metadataCache.offref(this.eventRef);
 		}
-		this.eventRef = this.plugin.app.metadataCache.on('changed', (file) => {
-			const tag = this.getTag();
-			const cache = this.plugin.app.metadataCache.getFileCache(file);
-			const hasTag = cache?.tags?.some((t) => t.tag === tag) ?? false;
-			if (!hasTag) return;
-			void this.render();
+		this.eventRef = this.plugin.app.metadataCache.on('changed', (_file) => {
+			this.triggerDebouncedRender();
 		});
 	}
 
@@ -190,10 +208,21 @@ export class DraftsTab {
 		const tag = this.getTag();
 		const watchlistTitles = this.dataManager.getTitles();
 		const fuse = this.buildFuse(watchlistTitles);
+
+		// Compute fuzzy match results once per entry and cache them
+		const fuzzyCache = new Map<string, boolean>();
+		for (const entry of entries) {
+			if (entry.added) {
+				fuzzyCache.set(entry.titleKey, false);
+			} else {
+				fuzzyCache.set(entry.titleKey, this.fuzzyMatchesWatchlist(entry.titleDisplay, fuse));
+			}
+		}
+
 		// Pending = not added AND not already present in the Watchlist (exact or fuzzy)
 		const pendingCount = entries.filter((e) => {
 			if (e.added) return false;
-			return !this.fuzzyMatchesWatchlist(e.titleDisplay, fuse);
+			return !fuzzyCache.get(e.titleKey);
 		}).length;
 		this.onCountChange(pendingCount);
 
@@ -221,8 +250,8 @@ export class DraftsTab {
 
 		// Sort: non-Watchlist entries first (oldest-first), Watchlist entries last (oldest-first)
 		entries.sort((a, b) => {
-			const aDup = a.added ? false : this.fuzzyMatchesWatchlist(a.titleDisplay, fuse);
-			const bDup = b.added ? false : this.fuzzyMatchesWatchlist(b.titleDisplay, fuse);
+			const aDup = fuzzyCache.get(a.titleKey) ?? false;
+			const bDup = fuzzyCache.get(b.titleKey) ?? false;
 			if (aDup !== bDup) return aDup ? 1 : -1;
 			return a.firstSeen.localeCompare(b.firstSeen);
 		});
@@ -230,13 +259,11 @@ export class DraftsTab {
 		// Cards (Fix 2 — Upcoming tab card style)
 		const cards = el.createDiv({ cls: 'wl-drafts-cards' });
 		for (const entry of entries) {
-			this.renderCard(cards, entry, fuse);
+			this.renderCard(cards, entry, fuzzyCache.get(entry.titleKey) ?? false);
 		}
 	}
 
-	private renderCard(cards: HTMLElement, entry: LiveDraftEntry, fuse: Fuse<WatchLogTitle>): void {
-		const isDuplicate = entry.added ? false : this.fuzzyMatchesWatchlist(entry.titleDisplay, fuse);
-
+	private renderCard(cards: HTMLElement, entry: LiveDraftEntry, isDuplicate: boolean): void {
 		// Build class list (Fix 4 — dim watchlist rows; style added rows)
 		let cls = 'wl-drafts-card';
 		if (isDuplicate) cls += ' wl-drafts-card-watchlist';
@@ -298,6 +325,16 @@ export class DraftsTab {
 		dismissBtn.addEventListener('click', () => void this.dismissEntry(entry.titleKey));
 	}
 
+	private rerenderFromCache(): void {
+		const entries = this.lastScanEntries
+			.filter((e) => !this.persistState.dismissed.includes(e.titleKey))
+			.map((e) => ({
+				...e,
+				added: this.persistState.added.includes(e.titleKey),
+			}));
+		this.renderUI(entries);
+	}
+
 	// ── Actions ───────────────────────────────────────────────────────────────────
 
 	private async dismissEntry(titleKey: string): Promise<void> {
@@ -306,7 +343,7 @@ export class DraftsTab {
 		}
 		this.persistState.added = this.persistState.added.filter((k) => k !== titleKey);
 		await this.savePersistState();
-		await this.render();
+		this.rerenderFromCache();
 	}
 
 	private openAddModal(entry: LiveDraftEntry): void {
@@ -317,6 +354,7 @@ export class DraftsTab {
 			() => void this.afterAdded(entry.titleKey),
 			{
 				searchQuery: entry.titleDisplay,
+				title: entry.titleDisplay,
 				type: 'Anime',
 				episodes: 0,
 				duration: 0,
@@ -337,7 +375,7 @@ export class DraftsTab {
 				this.persistState.added.push(titleKey);
 			}
 			await this.savePersistState();
-			await this.render();
+			this.rerenderFromCache();
 		}
 	}
 }

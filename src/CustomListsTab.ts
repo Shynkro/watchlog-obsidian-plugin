@@ -927,7 +927,7 @@ export class CustomListsTab {
 			e.stopPropagation();
 			if (sortPanel) { sortPanel.remove(); sortPanel = null; return; }
 			sortPanel = this.buildSortPanel(list, toolbar, () => { sortPanel = null; });
-			(activeDocument ?? document).addEventListener('click', () => { sortPanel?.remove(); sortPanel = null; }, { once: true });
+			activeDocument.addEventListener('click', () => { sortPanel?.remove(); sortPanel = null; }, { once: true });
 		});
 
 		// Export
@@ -1242,12 +1242,12 @@ export class CustomListsTab {
         		e.preventDefault();
     		}
 		};
-		(activeDocument ?? document).addEventListener('keydown', this._escapeKeyHandler, true);
-		(activeDocument ?? document).addEventListener('keyup', this._escapeKeyHandler, true);
+		activeDocument.addEventListener('keydown', this._escapeKeyHandler, true);
+		activeDocument.addEventListener('keyup', this._escapeKeyHandler, true);
 
 		// Mobile viewport: scroll active element into view when virtual keyboard shrinks viewport
 		const vpResizeHandler = (): void => {
-			const active = (activeDocument ?? document).activeElement as HTMLElement | null;
+			const active = activeDocument.activeElement as HTMLElement | null;
 			if (active) active.scrollIntoView({ behavior: 'smooth', block: 'center' });
 		};
 		if (window.visualViewport) window.visualViewport.addEventListener('resize', vpResizeHandler);
@@ -1275,7 +1275,7 @@ export class CustomListsTab {
 				.slice(0, 10);
 			if (!suggestions.length) return;
 			const rect = input.getBoundingClientRect();
-			dropdown = (activeDocument ?? document).body.createDiv({ cls: 'wl-cl-autofill-dropdown wl-pos-fixed' });
+			dropdown = activeDocument.body.createDiv({ cls: 'wl-cl-autofill-dropdown wl-pos-fixed' });
 			dropdown.style.top = `${rect.bottom}px`;
 			dropdown.style.left = `${rect.left}px`;
 			dropdown.style.width = `${rect.width}px`;
@@ -1295,8 +1295,8 @@ export class CustomListsTab {
 			saved = true;
 			if (window.visualViewport) window.visualViewport.removeEventListener('resize', vpResizeHandler);
 			if (this._escapeKeyHandler) {
-    			(activeDocument ?? document).removeEventListener('keydown', this._escapeKeyHandler, true);
-    			(activeDocument ?? document).removeEventListener('keyup', this._escapeKeyHandler, true);
+    			activeDocument.removeEventListener('keydown', this._escapeKeyHandler, true);
+    			activeDocument.removeEventListener('keyup', this._escapeKeyHandler, true);
     			this._escapeKeyHandler = null;
 			}
 			clearDropdown();
@@ -1421,7 +1421,7 @@ export class CustomListsTab {
 
 		// Mobile viewport: scroll active element into view when virtual keyboard shrinks viewport
 		const vpResizeHandler = (): void => {
-			const active = (activeDocument ?? document).activeElement as HTMLElement | null;
+			const active = activeDocument.activeElement as HTMLElement | null;
 			if (active) active.scrollIntoView({ behavior: 'smooth', block: 'center' });
 		};
 		if (window.visualViewport) window.visualViewport.addEventListener('resize', vpResizeHandler);
@@ -1436,8 +1436,8 @@ export class CustomListsTab {
 			saved = true;
 			if (window.visualViewport) window.visualViewport.removeEventListener('resize', vpResizeHandler);
 			if (this._escapeKeyHandler) {
-    			(activeDocument ?? document).removeEventListener('keydown', this._escapeKeyHandler, true);
-    			(activeDocument ?? document).removeEventListener('keyup', this._escapeKeyHandler, true);
+    			activeDocument.removeEventListener('keydown', this._escapeKeyHandler, true);
+    			activeDocument.removeEventListener('keyup', this._escapeKeyHandler, true);
     			this._escapeKeyHandler = null;
 			}
 			cell.removeClass('wl-cl-editing');

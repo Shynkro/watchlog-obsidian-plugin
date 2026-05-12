@@ -67,14 +67,16 @@ export class ListTab {
 	// Last known scroll position — updated continuously so rerenderTable() has the
 	// correct value even when called after an async operation has mutated the DOM.
 	private _lastScrollTop = 0;
+	private scrollPositionListener: (() => void) | null = null;
 
 	constructor(container: HTMLElement, plugin: WatchLogPlugin, dataManager: DataManager) {
 		this.container = container;
 		this.plugin = plugin;
 		this.dataManager = dataManager;
-		this.container.addEventListener('scroll', () => {
+		this.scrollPositionListener = () => {
 			this._lastScrollTop = this.container.scrollTop;
-		}, { passive: true });
+		};
+		this.container.addEventListener('scroll', this.scrollPositionListener, { passive: true });
 		this.pinnedGroupId = dataManager.getPinnedGroupId();
 
 		// Restore persisted filter state
@@ -198,6 +200,17 @@ export class ListTab {
 			return false;
 		}
 		return true;
+	}
+
+	destroy(): void {
+		if (this.scrollPositionListener) {
+			this.container.removeEventListener('scroll', this.scrollPositionListener);
+			this.scrollPositionListener = null;
+		}
+		if (this.scrollCleanup) {
+			this.scrollCleanup();
+			this.scrollCleanup = null;
+		}
 	}
 
 	render(): void {

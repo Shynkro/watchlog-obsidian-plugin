@@ -1,7 +1,7 @@
 {
 	"name": "watchlog-plugin",
 	"version": "1.1.0",
-	"description": "This is a sample plugin for Obsidian (https://obsidian.md)",
+	"description": "Track your anime, movies, and TV shows; with episode tracking, progress stats, upcoming release alerts, and embeddable widgets.",
 	"main": "main.js",
 	"type": "module",
 	"scripts": {

@@ -42,7 +42,7 @@ export class ApiService {
 
 	private async fetchWithTimeout(url: string, headers?: Record<string, string>): Promise<unknown> {
 		const timeoutPromise = new Promise<never>((_, reject) =>
-			setTimeout(() => reject(new Error('Request timed out')), API_TIMEOUT_MS),
+			window.setTimeout(() => reject(new Error('Request timed out')), API_TIMEOUT_MS),
 		);
 		const fetchPromise = requestUrl({ url, headers }).then((r) => r.json as unknown);
 		return Promise.race([fetchPromise, timeoutPromise]);

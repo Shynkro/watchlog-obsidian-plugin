@@ -44,7 +44,7 @@ export class AddFromUrlModal extends Modal {
 		this.addBtn = btnRow.createEl('button', { cls: 'wl-btn wl-btn-primary', text: 'Add' });
 		this.addBtn.addEventListener('click', () => void this.handleAdd());
 
-		setTimeout(() => this.urlInput?.focus(), 50);
+		window.setTimeout(() => this.urlInput?.focus(), 50);
 	}
 
 	onClose(): void {

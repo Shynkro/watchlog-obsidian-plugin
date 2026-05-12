@@ -53,11 +53,11 @@ export class WidgetRenderer {
 
 		// Re-render all active widgets when data changes (Fix 1: list → widget sync)
 		this.dataChangedListener = () => this.onDataChanged();
-		document.addEventListener('watchlog-data-changed', this.dataChangedListener);
+		activeDocument.addEventListener('watchlog-data-changed', this.dataChangedListener);
 
 		// Clean up listener when plugin unloads
 		plugin.register(() => {
-			document.removeEventListener('watchlog-data-changed', this.dataChangedListener);
+			activeDocument.removeEventListener('watchlog-data-changed', this.dataChangedListener);
 		});
 	}
 

@@ -30,7 +30,7 @@ export class MaybeAddModal extends Modal {
 
 	private resultsEl: HTMLElement | null = null;
 	private formEl: HTMLElement | null = null;
-	private searchDebounce: ReturnType<typeof setTimeout> | null = null;
+	private searchDebounce: number | null = null;
 
 	constructor(
 		app: App,
@@ -52,7 +52,7 @@ export class MaybeAddModal extends Modal {
 
 	onClose(): void {
 		this.contentEl.empty();
-		if (this.searchDebounce) clearTimeout(this.searchDebounce);
+		if (this.searchDebounce) window.clearTimeout(this.searchDebounce);
 	}
 
 	private buildUI(): void {
@@ -82,8 +82,8 @@ export class MaybeAddModal extends Modal {
 		searchInput.value = this.searchQuery;
 		searchInput.addEventListener('input', () => {
 			this.searchQuery = searchInput.value;
-			if (this.searchDebounce) clearTimeout(this.searchDebounce);
-			this.searchDebounce = setTimeout(() => void this.performSearch(), 600);
+			if (this.searchDebounce) window.clearTimeout(this.searchDebounce);
+			this.searchDebounce = window.setTimeout(() => void this.performSearch(), 600);
 		});
 		const searchBtn = searchRow.createEl('button', { cls: 'wl-btn', text: 'Search' });
 		searchBtn.addEventListener('click', () => void this.performSearch());

@@ -91,7 +91,6 @@ export interface WatchLogPluginSettings {
 	defaultView: 'dashboard' | 'watchlist';
 	autoCompleteOnLastEpisode: boolean;
 	setFinishDateAutomatically: boolean;
-	syncWidgetWithMainList: boolean;
 	omdbApiKey: string;
 	tmdbApiKey: string;
 	activeApi: 'OMDb' | 'TMDB';
@@ -278,7 +277,6 @@ export const DEFAULT_SETTINGS: WatchLogPluginSettings = {
 	defaultView: 'watchlist',
 	autoCompleteOnLastEpisode: true,
 	setFinishDateAutomatically: false,
-	syncWidgetWithMainList: true,
 	omdbApiKey: '',
 	tmdbApiKey: '',
 	activeApi: 'OMDb',

@@ -139,18 +139,6 @@ export class WatchLogSettingsTab extends PluginSettingTab {
 			);
 
 		new Setting(el)
-			.setName('Sync widget with watchlist')
-			.setDesc('Changes in todo widget are reflected in the watchlist and vice versa.')
-			.addToggle((t) =>
-				t
-					.setValue(this.plugin.settings.syncWidgetWithMainList)
-					.onChange(async (v) => {
-						this.plugin.settings.syncWidgetWithMainList = v;
-						await this.plugin.saveSettings();
-					}),
-			);
-
-		new Setting(el)
 			.setName('Colored type badges')
 			.setDesc('Show type and status badges with their configured colors. Disable for a plain text style.')
 			.addToggle((t) =>

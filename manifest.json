@@ -1,9 +1,9 @@
 {
 	"id": "watchlog",
 	"name": "WatchLog",
-	"version": "1.0.9",
+	"version": "1.1.0",
 	"minAppVersion": "1.7.2",
-	"description": "Track your anime, movies, and TV shows — with episode tracking, progress stats, upcoming release alerts, and embeddable widgets.",
+	"description": "Track your anime, movies, and TV shows; with episode tracking, progress stats, upcoming release alerts, and embeddable widgets.",
 	"author": "BogdanS",
 	"authorUrl": "",
 	"isDesktopOnly": false

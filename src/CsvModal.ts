@@ -347,7 +347,7 @@ export class CsvModal extends Modal {
 			const csv = titlesToCsv(toExport);
 			const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
 			const url = URL.createObjectURL(blob);
-			const a = document.createElement('a');
+			const a = activeDocument.createElement('a');
 			const today = new Date();
 			const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 			a.href = url;

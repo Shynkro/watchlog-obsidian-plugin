@@ -96,7 +96,7 @@ export class WatchLogSettingsTab extends PluginSettingTab {
 					.onChange(async (v) => {
 						this.plugin.settings.dashboardCardStyle = v as 'circles' | 'rectangles';
 						await this.plugin.saveSettings();
-						document.dispatchEvent(new CustomEvent('watchlog-data-changed'));
+						activeDocument.dispatchEvent(new CustomEvent('watchlog-data-changed'));
 					}),
 			);
 
@@ -110,7 +110,7 @@ export class WatchLogSettingsTab extends PluginSettingTab {
 					.onChange(async (v) => {
 						this.plugin.settings.episodeNumbering = v as 'absolute' | 'per-season';
 						await this.plugin.saveSettings();
-						document.dispatchEvent(new CustomEvent('watchlog-data-changed'));
+						activeDocument.dispatchEvent(new CustomEvent('watchlog-data-changed'));
 					}),
 			);
 
@@ -237,29 +237,29 @@ export class WatchLogSettingsTab extends PluginSettingTab {
 			const json = JSON.stringify(data ?? {}, null, 2);
 			const blob = new Blob([json], { type: 'application/json' });
 			const url = URL.createObjectURL(blob);
-			const a = document.createElement('a');
+			const a = activeDocument.createElement('a');
 			a.href = url;
 			a.download = filename;
-			document.body.appendChild(a);
+			activeDocument.body.appendChild(a);
 			a.click();
-			document.body.removeChild(a);
+			activeDocument.body.removeChild(a);
 			URL.revokeObjectURL(url);
 			new Notice(`Backup exported as ${filename}`);
 		});
 	}
 
 	private openRestoreDialog(): void {
-		const input = document.createElement('input');
+		const input = activeDocument.createElement('input');
 		input.type = 'file';
 		input.accept = '.json';
 		input.hide();
-		document.body.appendChild(input);
+		activeDocument.body.appendChild(input);
 		input.addEventListener('change', () => {
 			const file = input.files?.[0];
-			if (!file) { document.body.removeChild(input); return; }
+			if (!file) { activeDocument.body.removeChild(input); return; }
 			const reader = new FileReader();
 			reader.onload = (e) => {
-				document.body.removeChild(input);
+				activeDocument.body.removeChild(input);
 				const text = e.target?.result as string;
 				let parsed: unknown;
 				try { parsed = JSON.parse(text); } catch {
@@ -275,7 +275,7 @@ export class WatchLogSettingsTab extends PluginSettingTab {
 					void this.plugin.saveData(parsed).then(async () => {
 						await this.plugin.loadSettings();
 						await this.plugin.dataManager.load();
-						document.dispatchEvent(new CustomEvent('watchlog-data-changed'));
+						activeDocument.dispatchEvent(new CustomEvent('watchlog-data-changed'));
 						new Notice('Backup restored successfully.');
 					});
 				}).open();
@@ -476,7 +476,7 @@ export class WatchLogSettingsTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 					for (const c of allCards) c.removeClass('is-selected');
 					card.addClass('is-selected');
-					document.dispatchEvent(new CustomEvent('watchlog-data-changed'));
+					activeDocument.dispatchEvent(new CustomEvent('watchlog-data-changed'));
 					const leaves = this.plugin.app.workspace.getLeavesOfType('watchlog-view');
 					for (const leaf of leaves) {
 						if (leaf.view instanceof WatchLogView) {
@@ -920,7 +920,7 @@ export class WatchLogSettingsTab extends PluginSettingTab {
 			copyBtn.addEventListener('click', () => {
 				void navigator.clipboard.writeText(w.syntax).then(() => {
 					copyBtn.textContent = 'Copied!';
-					setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1500);
+					window.setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1500);
 				});
 			});
 		}

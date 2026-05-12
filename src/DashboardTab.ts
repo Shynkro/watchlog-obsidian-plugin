@@ -84,13 +84,13 @@ export class DashboardTab {
 		const item = parent.createDiv({ cls: 'wl-ring-item' });
 
 		const svgNS = 'http://www.w3.org/2000/svg';
-		const svg = document.createElementNS(svgNS, 'svg');
+		const svg = activeDocument.createElementNS(svgNS, 'svg');
 		svg.setAttribute('viewBox', '0 0 120 120');
 		svg.setAttribute('width', '110');
 		svg.setAttribute('height', '110');
 		svg.addClass('wl-ring-svg');
 
-		const bgCircle = document.createElementNS(svgNS, 'circle');
+		const bgCircle = activeDocument.createElementNS(svgNS, 'circle');
 		bgCircle.setAttribute('cx', '60');
 		bgCircle.setAttribute('cy', '60');
 		bgCircle.setAttribute('r', '45');
@@ -99,7 +99,7 @@ export class DashboardTab {
 		bgCircle.addClass('wl-ring-track');
 		svg.appendChild(bgCircle);
 
-		const arc = document.createElementNS(svgNS, 'circle');
+		const arc = activeDocument.createElementNS(svgNS, 'circle');
 		arc.setAttribute('cx', '60');
 		arc.setAttribute('cy', '60');
 		arc.setAttribute('r', '45');
@@ -114,7 +114,7 @@ export class DashboardTab {
 		arc.addClass('wl-ring-arc');
 		svg.appendChild(arc);
 
-		const text = document.createElementNS(svgNS, 'text');
+		const text = activeDocument.createElementNS(svgNS, 'text');
 		text.setAttribute('x', '60');
 		text.setAttribute('y', '55');
 		text.setAttribute('text-anchor', 'middle');
@@ -123,7 +123,7 @@ export class DashboardTab {
 		text.textContent = `${percent}%`;
 		svg.appendChild(text);
 
-		const subText = document.createElementNS(svgNS, 'text');
+		const subText = activeDocument.createElementNS(svgNS, 'text');
 		subText.setAttribute('x', '60');
 		subText.setAttribute('y', '72');
 		subText.setAttribute('text-anchor', 'middle');
@@ -146,13 +146,13 @@ export class DashboardTab {
 		const item = parent.createDiv({ cls: 'wl-ring-item' });
 
 		const svgNS = 'http://www.w3.org/2000/svg';
-		const svg = document.createElementNS(svgNS, 'svg');
+		const svg = activeDocument.createElementNS(svgNS, 'svg');
 		svg.setAttribute('viewBox', '0 0 120 120');
 		svg.setAttribute('width', '110');
 		svg.setAttribute('height', '110');
 		svg.addClass('wl-ring-svg');
 
-		const bgCircle = document.createElementNS(svgNS, 'circle');
+		const bgCircle = activeDocument.createElementNS(svgNS, 'circle');
 		bgCircle.setAttribute('cx', '60');
 		bgCircle.setAttribute('cy', '60');
 		bgCircle.setAttribute('r', '45');
@@ -161,7 +161,7 @@ export class DashboardTab {
 		bgCircle.addClass('wl-ring-track');
 		svg.appendChild(bgCircle);
 
-		const arc = document.createElementNS(svgNS, 'circle');
+		const arc = activeDocument.createElementNS(svgNS, 'circle');
 		arc.setAttribute('cx', '60');
 		arc.setAttribute('cy', '60');
 		arc.setAttribute('r', '45');
@@ -175,7 +175,7 @@ export class DashboardTab {
 		arc.addClass('wl-ring-arc');
 		svg.appendChild(arc);
 
-		const text = document.createElementNS(svgNS, 'text');
+		const text = activeDocument.createElementNS(svgNS, 'text');
 		text.setAttribute('x', '60');
 		text.setAttribute('y', '60');
 		text.setAttribute('text-anchor', 'middle');

@@ -516,7 +516,7 @@ class NotesModal extends Modal {
 			attr: { placeholder: 'Add notes, links, or any text here...' },
 		});
 		textarea.value = this.initialNotes;
-		setTimeout(() => {
+		window.setTimeout(() => {
 			textarea.focus();
 			textarea.setSelectionRange(textarea.value.length, textarea.value.length);
 		}, 0);
@@ -605,7 +605,7 @@ class ListNameModal extends Modal {
 			.addText((t) => {
 				t.setPlaceholder('E.g. Marvel movies')
 					.onChange((v) => { value = v; errorEl.hide(); });
-				setTimeout(() => t.inputEl.focus(), 0);
+				window.setTimeout(() => t.inputEl.focus(), 0);
 				t.inputEl.addEventListener('keydown', (e) => {
 					if (e.key === 'Enter') { e.preventDefault(); submit(); }
 				});
@@ -697,7 +697,7 @@ class MobileCellEditModal extends Modal {
 			if (e.key === 'Enter') { e.preventDefault(); void this.onSave(input.value); this.close(); }
 		});
 
-		setTimeout(() => { input.focus(); input.select(); }, 50);
+		window.setTimeout(() => { input.focus(); input.select(); }, 50);
 	}
 
 	onClose(): void { this.contentEl.empty(); }
@@ -927,7 +927,7 @@ export class CustomListsTab {
 			e.stopPropagation();
 			if (sortPanel) { sortPanel.remove(); sortPanel = null; return; }
 			sortPanel = this.buildSortPanel(list, toolbar, () => { sortPanel = null; });
-			document.addEventListener('click', () => { sortPanel?.remove(); sortPanel = null; }, { once: true });
+			activeDocument.addEventListener('click', () => { sortPanel?.remove(); sortPanel = null; }, { once: true });
 		});
 
 		// Export
@@ -1168,7 +1168,7 @@ export class CustomListsTab {
 				void this.manager.saveList(list).then(() => {
 					container.empty();
 					this.buildTable(container, list, countEl);
-					setTimeout(() => {
+					window.setTimeout(() => {
 						const newTbody = container.querySelector('.wl-cl-tbody');
 						const lastTr = newTbody?.querySelector('.wl-cl-tr-body:last-child') as HTMLElement | null;
 						(lastTr?.querySelector('.wl-cl-td-name') as HTMLElement | null)?.click();
@@ -1242,16 +1242,16 @@ export class CustomListsTab {
         		e.preventDefault();
     		}
 		};
-		document.addEventListener('keydown', this._escapeKeyHandler, true);
-		document.addEventListener('keyup', this._escapeKeyHandler, true);
+		activeDocument.addEventListener('keydown', this._escapeKeyHandler, true);
+		activeDocument.addEventListener('keyup', this._escapeKeyHandler, true);
 
 		// Mobile viewport: scroll active element into view when virtual keyboard shrinks viewport
 		const vpResizeHandler = (): void => {
-			const active = document.activeElement as HTMLElement | null;
+			const active = activeDocument.activeElement as HTMLElement | null;
 			if (active) active.scrollIntoView({ behavior: 'smooth', block: 'center' });
 		};
 		if (window.visualViewport) window.visualViewport.addEventListener('resize', vpResizeHandler);
-		setTimeout(() => cell.scrollIntoView({ block: 'nearest', behavior: 'smooth' }), 50);
+		window.setTimeout(() => cell.scrollIntoView({ block: 'nearest', behavior: 'smooth' }), 50);
 
 		const wrap = cell.createDiv({ cls: 'wl-cl-autofill-wrap' });
 		const input = wrap.createEl('input', {
@@ -1275,7 +1275,7 @@ export class CustomListsTab {
 				.slice(0, 10);
 			if (!suggestions.length) return;
 			const rect = input.getBoundingClientRect();
-			dropdown = document.body.createDiv({ cls: 'wl-cl-autofill-dropdown wl-pos-fixed' });
+			dropdown = activeDocument.body.createDiv({ cls: 'wl-cl-autofill-dropdown wl-pos-fixed' });
 			dropdown.style.top = `${rect.bottom}px`;
 			dropdown.style.left = `${rect.left}px`;
 			dropdown.style.width = `${rect.width}px`;
@@ -1295,8 +1295,8 @@ export class CustomListsTab {
 			saved = true;
 			if (window.visualViewport) window.visualViewport.removeEventListener('resize', vpResizeHandler);
 			if (this._escapeKeyHandler) {
-    			document.removeEventListener('keydown', this._escapeKeyHandler, true);
-    			document.removeEventListener('keyup', this._escapeKeyHandler, true);
+    			activeDocument.removeEventListener('keydown', this._escapeKeyHandler, true);
+    			activeDocument.removeEventListener('keyup', this._escapeKeyHandler, true);
     			this._escapeKeyHandler = null;
 			}
 			clearDropdown();
@@ -1421,11 +1421,11 @@ export class CustomListsTab {
 
 		// Mobile viewport: scroll active element into view when virtual keyboard shrinks viewport
 		const vpResizeHandler = (): void => {
-			const active = document.activeElement as HTMLElement | null;
+			const active = activeDocument.activeElement as HTMLElement | null;
 			if (active) active.scrollIntoView({ behavior: 'smooth', block: 'center' });
 		};
 		if (window.visualViewport) window.visualViewport.addEventListener('resize', vpResizeHandler);
-		setTimeout(() => cell.scrollIntoView({ block: 'nearest', behavior: 'smooth' }), 50);
+		window.setTimeout(() => cell.scrollIntoView({ block: 'nearest', behavior: 'smooth' }), 50);
 
 		let getValue: () => string | number | undefined;
 		let saved = false;
@@ -1436,8 +1436,8 @@ export class CustomListsTab {
 			saved = true;
 			if (window.visualViewport) window.visualViewport.removeEventListener('resize', vpResizeHandler);
 			if (this._escapeKeyHandler) {
-    			document.removeEventListener('keydown', this._escapeKeyHandler, true);
-    			document.removeEventListener('keyup', this._escapeKeyHandler, true);
+    			activeDocument.removeEventListener('keydown', this._escapeKeyHandler, true);
+    			activeDocument.removeEventListener('keyup', this._escapeKeyHandler, true);
     			this._escapeKeyHandler = null;
 			}
 			cell.removeClass('wl-cl-editing');
@@ -1521,13 +1521,13 @@ export class CustomListsTab {
 		if (direction === 'tab') {
 			if (colIdx >= 0 && colIdx < editableCells.length - 1) {
 				// Next cell in same row
-				setTimeout(() => (editableCells[colIdx + 1] as HTMLElement | undefined)?.click(), 10);
+				window.setTimeout(() => (editableCells[colIdx + 1] as HTMLElement | undefined)?.click(), 10);
 			} else if (rowIdx >= 0 && rowIdx < rows.length - 1) {
 				// First cell of next row
 				const nextRow = rows[rowIdx + 1];
 				if (nextRow) {
 					const nextCells = this.getEditableCells(nextRow);
-					if (nextCells.length) setTimeout(() => (nextCells[0] as HTMLElement | undefined)?.click(), 10);
+					if (nextCells.length) window.setTimeout(() => (nextCells[0] as HTMLElement | undefined)?.click(), 10);
 				}
 			} else {
 				// Last cell of last row → add new row, focus name
@@ -1536,13 +1536,13 @@ export class CustomListsTab {
 		} else if (direction === 'shift-tab') {
 			if (colIdx > 0) {
 				// Previous cell in same row
-				setTimeout(() => (editableCells[colIdx - 1] as HTMLElement | undefined)?.click(), 10);
+				window.setTimeout(() => (editableCells[colIdx - 1] as HTMLElement | undefined)?.click(), 10);
 			} else if (rowIdx > 0) {
 				// Last cell of previous row
 				const prevRow = rows[rowIdx - 1];
 				if (prevRow) {
 					const prevCells = this.getEditableCells(prevRow);
-					if (prevCells.length) setTimeout(() => (prevCells[prevCells.length - 1] as HTMLElement | undefined)?.click(), 10);
+					if (prevCells.length) window.setTimeout(() => (prevCells[prevCells.length - 1] as HTMLElement | undefined)?.click(), 10);
 				}
 			}
 			// First cell of first row → do nothing
@@ -1553,7 +1553,7 @@ export class CustomListsTab {
 				if (nextRow) {
 					const nextCells = this.getEditableCells(nextRow);
 					const targetIdx = Math.min(colIdx >= 0 ? colIdx : 0, nextCells.length - 1);
-					if (nextCells.length) setTimeout(() => (nextCells[targetIdx] as HTMLElement | undefined)?.click(), 10);
+					if (nextCells.length) window.setTimeout(() => (nextCells[targetIdx] as HTMLElement | undefined)?.click(), 10);
 				}
 			} else {
 				// Last row → add new row, focus same column
@@ -1573,7 +1573,7 @@ export class CustomListsTab {
 		void this.manager.saveList(list).then(() => {
 			tableContainer.empty();
 			this.buildTable(tableContainer, list, countEl);
-			setTimeout(() => {
+			window.setTimeout(() => {
 				const newTbody = tableContainer.querySelector('.wl-cl-tbody');
 				if (!newTbody) return;
 				const allRows = Array.from(newTbody.querySelectorAll('.wl-cl-tr-body'));

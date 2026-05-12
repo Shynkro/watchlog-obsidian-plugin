@@ -371,10 +371,10 @@ export class ListTab {
 
 		btn.addEventListener('click', (e) => {
     		e.stopPropagation();
-    		const existing = document.querySelector('.wl-filters-panel');
+    		const existing = activeDocument.querySelector('.wl-filters-panel');
     		if (existing) { existing.remove(); return; }
 
-    		const panel = document.body.createDiv({ cls: 'wl-dropdown wl-filters-panel wl-filters-panel-popup' });
+    		const panel = activeDocument.body.createDiv({ cls: 'wl-dropdown wl-filters-panel wl-filters-panel-popup' });
 			const rect = btn.getBoundingClientRect();
 			panel.style.top = `${rect.bottom + 4}px`;
 			panel.style.left = `${rect.left}px`;
@@ -575,16 +575,16 @@ export class ListTab {
 				if (active) { dotEl.show(); clearBtn.show(); } else { dotEl.hide(); clearBtn.hide(); }
 				this.rerenderTable();
 				panel.remove();
-				document.removeEventListener('mousedown', closer, false);
+				activeDocument.removeEventListener('mousedown', closer, false);
 			});
 
 			const closer = (ev: MouseEvent) => {
     			const target = ev.target as Node;
     			if (panel.contains(target) || wrap.contains(target)) return;
     			panel.remove();
-    			document.removeEventListener('mousedown', closer, false);
+    			activeDocument.removeEventListener('mousedown', closer, false);
 			};
-			setTimeout(() => document.addEventListener('mousedown', closer, false), 0);
+			window.setTimeout(() => activeDocument.addEventListener('mousedown', closer, false), 0);
 		});
 	}
 
@@ -642,7 +642,7 @@ export class ListTab {
 						this.filterSecondSortDir = ListTab.SORT_DEFAULT_DIR[newKey] ?? 'asc';
 					}
 					panel.remove();
-					document.removeEventListener('click', closer, true);
+					activeDocument.removeEventListener('click', closer, true);
 					this.saveFiltersToSettings();
 					this.render();
 				});
@@ -655,7 +655,7 @@ export class ListTab {
 						this.filterSecondSortDir = this.filterSecondSortDir === 'asc' ? 'desc' : 'asc';
 					}
 					panel.remove();
-					document.removeEventListener('click', closer, true);
+					activeDocument.removeEventListener('click', closer, true);
 					this.saveFiltersToSettings();
 					this.render();
 				});
@@ -667,10 +667,10 @@ export class ListTab {
 			const closer = (ev: MouseEvent) => {
 				if (!wrap.contains(ev.target as Node)) {
 					panel.remove();
-					document.removeEventListener('click', closer, true);
+					activeDocument.removeEventListener('click', closer, true);
 				}
 			};
-			setTimeout(() => document.addEventListener('click', closer, true), 0);
+			window.setTimeout(() => activeDocument.addEventListener('click', closer, true), 0);
 		});
 	}
 
@@ -788,7 +788,7 @@ export class ListTab {
 						if (e.key === 'Escape') this.render();
 					});
 					nameInput.addEventListener('click', (e) => e.stopPropagation());
-					setTimeout(() => nameInput.focus(), 0);
+					window.setTimeout(() => nameInput.focus(), 0);
 					return;
 				}
 
@@ -823,7 +823,7 @@ export class ListTab {
 		let searchDebounce = 0;
 		input.addEventListener('input', () => {
 			this.searchQuery = input.value;
-			clearTimeout(searchDebounce);
+			window.clearTimeout(searchDebounce);
 			searchDebounce = window.setTimeout(() => { this.rerenderTable(); }, 250);
 		});
 	}
@@ -999,7 +999,7 @@ export class ListTab {
 			if (expandedIdx !== -1) {
 				const item = items[expandedIdx];
 				if (item?.kind === 'title') {
-					const probe = document.body.createDiv();
+					const probe = activeDocument.body.createDiv();
 					probe.style.cssText = `position:absolute;left:-9999px;top:0;width:${table.clientWidth}px;visibility:hidden;`;
 					this.renderRow(probe, item.data);
 					const measured = probe.offsetHeight;
@@ -1015,7 +1015,7 @@ export class ListTab {
 			const item = items[i];
 			if (item?.kind !== 'group') continue;
 			if (!this.expandedGroups.has(item.data.id)) continue;
-			const probe = document.body.createDiv();
+			const probe = activeDocument.body.createDiv();
 			probe.style.cssText = `position:absolute;left:-9999px;top:0;width:${table.clientWidth}px;visibility:hidden;`;
 			this.renderGroupRow(probe, item.data, item.members);
 			const measured = probe.offsetHeight;
@@ -1111,7 +1111,7 @@ export class ListTab {
 
 		const onScroll = (): void => {
 			if (rafId !== 0) return;
-			rafId = requestAnimationFrame(() => {
+			rafId = window.requestAnimationFrame(() => {
 				rafId = 0;
 				renderWindow();
 			});
@@ -1520,7 +1520,7 @@ export class ListTab {
 				this.rerenderTable();
 			});
 			// Focus the input
-			setTimeout(() => nameInput.focus(), 0);
+			window.setTimeout(() => nameInput.focus(), 0);
 		} else {
 			// Normal mode: name + pencil + delete buttons
 			const nameRow = colTitle.createDiv({ cls: 'wl-group-name-row' });

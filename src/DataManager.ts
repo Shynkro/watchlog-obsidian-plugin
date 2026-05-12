@@ -469,7 +469,7 @@ export class DataManager {
 		for (const listener of this.changeListeners) {
 			listener();
 		}
-		document.dispatchEvent(new CustomEvent('watchlog-data-changed'));
+		activeDocument.dispatchEvent(new CustomEvent('watchlog-data-changed'));
 	}
 
 	// ── Season collapse persistence ──────────────────────────────────────────────

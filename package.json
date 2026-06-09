@@ -1,7 +1,7 @@
 {
 	"name": "watchlog-plugin",
-	"version": "1.1.0",
-	"description": "Track your anime, movies, and TV shows; with episode tracking, progress stats, upcoming release alerts, and embeddable widgets.",
+	"version": "2.0.0",
+	"description": "Track your anime, movies, books, manga and TV shows; with episode tracking, progress stats, upcoming release alerts, and embeddable widgets.",
 	"main": "main.js",
 	"type": "module",
 	"scripts": {

@@ -1,8 +1,8 @@
 import { App, Modal, Notice } from 'obsidian';
 import type WatchLogPlugin from './main';
 import type { DataManager } from './DataManager';
-import type { MaybeTitle, AnimeSearchResult, MediaSearchResult, Season } from './types';
-import { parseReleaseDateInput } from './types';
+import type { MaybeTitle, AnimeSearchResult, MediaSearchResult } from './types';
+import { parseReleaseDateInput, getApiGroupForType } from './types';
 
 type SearchResult = AnimeSearchResult | MediaSearchResult;
 
@@ -19,14 +19,13 @@ export class MaybeAddModal extends Modal {
 	private searchQuery = '';
 	private searchResults: SearchResult[] = [];
 	private isSearching = false;
-	private autoSearch = false;
+	private searchGeneration = 0;
 
 	private fieldTitle = '';
 	private fieldEpisodes = 0;
 	private fieldDuration = 0;
 	private fieldReleaseDate = '';
 	private fieldLink = '';
-	private fieldSeasons: Season[] = [];
 
 	private resultsEl: HTMLElement | null = null;
 	private formEl: HTMLElement | null = null;
@@ -95,26 +94,38 @@ export class MaybeAddModal extends Modal {
 
 	private async performSearch(): Promise<void> {
 		if (!this.searchQuery.trim()) return;
+		const gen = ++this.searchGeneration;
 		this.isSearching = true;
 		this.renderResults();
 		try {
 			const api = this.plugin.apiService;
 			const activeApi = this.plugin.settings.activeApi ?? 'OMDb';
-			const isAnime = this.selectedType === 'Anime';
+			const apiGroup = getApiGroupForType(this.selectedType, this.plugin.settings.typeApiMapping);
 			const isMovie = this.selectedType === 'Movie';
-			if (isAnime) {
-				this.searchResults = await api.searchAnime(this.searchQuery);
+			let results: SearchResult[] = [];
+			if (apiGroup === '') {
+				new Notice(`No API configured for type "${this.selectedType}". Configure it in Settings → API.`);
+			} else if (apiGroup === 'anime') {
+				const animeSource = this.plugin.settings.animeApiSource ?? 'jikan';
+				results = animeSource === 'anilist'
+					? await api.searchAniList(this.searchQuery)
+					: await api.searchAnime(this.searchQuery);
 			} else if (activeApi === 'TMDB') {
-				this.searchResults = await api.searchTmdb(this.searchQuery, isMovie ? 'movie' : 'series');
+				results = await api.searchTmdb(this.searchQuery, isMovie ? 'movie' : 'series');
 			} else {
-				this.searchResults = await api.searchOmdb(this.searchQuery, isMovie ? 'movie' : 'series');
+				results = await api.searchOmdb(this.searchQuery, isMovie ? 'movie' : 'series');
 			}
+			if (gen !== this.searchGeneration) return; // stale
+			this.searchResults = results;
 		} catch {
+			if (gen !== this.searchGeneration) return;
 			new Notice('Search failed. Check your connection and API settings.');
 			this.searchResults = [];
 		} finally {
-			this.isSearching = false;
-			this.renderResults();
+			if (gen === this.searchGeneration) {
+				this.isSearching = false;
+				this.renderResults();
+			}
 		}
 	}
 
@@ -138,26 +149,31 @@ export class MaybeAddModal extends Modal {
 			for (const child of Array.from(this.resultsEl.children)) child.removeClass('is-selected');
 		}
 		itemEl.addClass('is-selected');
+		const gen = ++this.searchGeneration;
 		const api = this.plugin.apiService;
 		const activeApi = this.plugin.settings.activeApi ?? 'OMDb';
 		try {
 			if (!isAnimeResult(result) && result.mediaType === 'tv') {
 				const full = activeApi === 'TMDB' ? await api.getTmdbTvDetails(result.imdbId) : await api.getOmdbTvDetails(result.imdbId);
-				if (full) { this.fieldTitle = full.title; this.fieldEpisodes = full.episodes; this.fieldDuration = full.episodeDuration; this.fieldReleaseDate = full.releaseDate; this.fieldLink = full.url; this.fieldSeasons = full.seasons; }
+				if (gen !== this.searchGeneration) return;
+				if (full) { this.fieldTitle = full.title; this.fieldEpisodes = full.episodes; this.fieldDuration = full.episodeDuration; this.fieldReleaseDate = full.releaseDate; this.fieldLink = full.url; }
 			} else if (!isAnimeResult(result) && result.mediaType === 'movie') {
 				const full = activeApi === 'TMDB' ? await api.getTmdbMovieDetails(result.imdbId) : await api.getOmdbMovieDetails(result.imdbId);
-				if (full) { this.fieldTitle = full.title; this.fieldEpisodes = full.episodes; this.fieldDuration = full.episodeDuration; this.fieldReleaseDate = full.releaseDate; this.fieldLink = full.url; this.fieldSeasons = full.seasons; }
+				if (gen !== this.searchGeneration) return;
+				if (full) { this.fieldTitle = full.title; this.fieldEpisodes = full.episodes; this.fieldDuration = full.episodeDuration; this.fieldReleaseDate = full.releaseDate; this.fieldLink = full.url; }
 			} else {
 				const anime = result as AnimeSearchResult;
 				this.fieldTitle = anime.title; this.fieldEpisodes = anime.episodes; this.fieldDuration = anime.duration;
-				this.fieldReleaseDate = anime.releaseDate; this.fieldLink = anime.url; this.fieldSeasons = anime.seasons;
+				this.fieldReleaseDate = anime.releaseDate; this.fieldLink = anime.url;
 			}
 		} catch {
+			if (gen !== this.searchGeneration) return;
 			this.fieldTitle = result.title;
-			this.fieldEpisodes = isAnimeResult(result) ? result.episodes : result.episodes;
+			this.fieldEpisodes = result.episodes;
 			this.fieldDuration = isAnimeResult(result) ? result.duration : result.episodeDuration;
-			this.fieldReleaseDate = result.releaseDate; this.fieldLink = result.url; this.fieldSeasons = result.seasons;
+			this.fieldReleaseDate = result.releaseDate; this.fieldLink = result.url;
 		}
+		if (gen !== this.searchGeneration) return;
 		this.renderForm();
 	}
 

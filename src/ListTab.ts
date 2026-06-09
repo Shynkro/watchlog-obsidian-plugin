@@ -1,11 +1,14 @@
+import { Modal } from 'obsidian';
 import type WatchLogPlugin from './main';
 import type { DataManager } from './DataManager';
-import type { WatchLogTitle, WatchLogGroup, TagDefinition, SavedFilterPreset } from './types';
-import { formatTime, formatDateDisplay, parseDateInput, getThemedColor } from './types';
+import type { WatchLogTitle, WatchLogGroup, TagDefinition, SavedFilterPreset, Season } from './types';
+import { formatTime, formatDateDisplay, parseDateInput, getThemedColor, getDisplayPoster } from './types';
+import { renderCommunityRating, maybeAutoRefreshCommunityRating, refreshCommunityRating } from './CommunityRating';
 import { AddTitleModal } from './AddTitleModal';
 import { AddFromUrlModal } from './AddFromUrlModal';
 import { EditTitleModal } from './EditTitleModal';
 import { ConfirmModal } from './ConfirmModal';
+import { TitleDetailModal, GroupDetailModal } from './TitleDetailModal';
 
 // ── Display item type ─────────────────────────────────────────────────────────
 
@@ -51,28 +54,56 @@ export class ListTab {
 	savedFilterActive = false;
 	private savedFilterBtnEl: HTMLButtonElement | null = null;
 
-	// Empty-only filter flags (QoL 4)
+	// Empty-only filter flags
 	filterRatingEmptyOnly = false;
 	filterPriorityEmptyOnly = false;
 
-	// Recently arrived only filter (Feature 1)
+	// Recently arrived only filter
 	filterRecentlyArrivedOnly = false;
 
-	// Watchlist sub-tab (Feature 3)
-	currentSubTab: 'list' | 'history' = 'list';
+	// Groups only filter — hides standalone titles, shows only groups
+	filterGroupsOnly = false;
+
+	// Watchlist sub-tab
+	currentSubTab: 'list' | 'cards' = 'list';
 
 	// Virtual-scroll cleanup — removes the rAF-throttled scroll listener on re-render
 	private scrollCleanup: (() => void) | null = null;
+
+	// Cards-view poster lazy loading
+	private cardsObserver: IntersectionObserver | null = null;
+	private observedCards: Set<HTMLElement> = new Set();
+
+	// Cards virtual scroll state
+	private cardsScrollContainer: HTMLElement | null = null;
+	private cardsScrollSpacer: HTMLElement | null = null;
+	private cardsGridEl: HTMLElement | null = null;
+	private cardsDisplayItems: DisplayItem[] = [];
+	private cardsScrollHandler: (() => void) | null = null;
+	private cardsScrollRAF: number | null = null;
+	private cardsResizeObserver: ResizeObserver | null = null;
+	private cardsLastFirst = -1;
+	private cardsLastLast = -1;
+	private cardsLastScrollTop = 0;
+	// Survives destroyVirtualScroll() so render() can restore scroll position
+	// after a full Cards-view rebuild (mirrors how _lastScrollTop works for List).
+	private _cardsPersistentScrollTop = 0;
+	private cardsRowHeight = 0;
 
 	// Last known scroll position — updated continuously so rerenderTable() has the
 	// correct value even when called after an async operation has mutated the DOM.
 	private _lastScrollTop = 0;
 	private scrollPositionListener: (() => void) | null = null;
 
+	// Document-level click handlers registered for transient menus/panels.
+	// Cleaned up on rerender so DOM removal doesn't leave dangling listeners.
+	private activeCleanups: (() => void)[] = [];
+
 	constructor(container: HTMLElement, plugin: WatchLogPlugin, dataManager: DataManager) {
 		this.container = container;
 		this.plugin = plugin;
 		this.dataManager = dataManager;
+		this.currentSubTab = plugin.settings.defaultWatchlistView === 'list' ? 'list' : 'cards';
 		this.scrollPositionListener = () => {
 			this._lastScrollTop = this.container.scrollTop;
 		};
@@ -96,9 +127,10 @@ export class ListTab {
 			this.filterRatingEmptyOnly      = saved.ratingEmptyOnly      ?? false;
 			this.filterPriorityEmptyOnly    = saved.priorityEmptyOnly    ?? false;
 			this.filterRecentlyArrivedOnly  = saved.recentlyArrivedOnly  ?? false;
+			this.filterGroupsOnly           = saved.groupsOnly           ?? false;
 		}
 
-		// Bug 1: detect if current filters match the saved preset so the button stays green
+		// Detect if current filters match the saved preset so the button stays green
 		const savedPreset = dataManager.getSavedFilterPreset();
 		if (savedPreset) {
 			const setsMatch = (a: Set<string>, b: string[]) =>
@@ -111,7 +143,8 @@ export class ListTab {
 				setsMatch(this.filterPriorityExclude, savedPreset.priorityExclude) &&
 				(this.filterRatingEmptyOnly === (savedPreset.ratingEmptyOnly ?? false)) &&
 				(this.filterPriorityEmptyOnly === (savedPreset.priorityEmptyOnly ?? false)) &&
-				(this.filterRecentlyArrivedOnly === (savedPreset.recentlyArrivedOnly ?? false));
+				(this.filterRecentlyArrivedOnly === (savedPreset.recentlyArrivedOnly ?? false)) &&
+				(this.filterGroupsOnly === (savedPreset.groupsOnly ?? false));
 		}
 	}
 
@@ -129,6 +162,7 @@ export class ListTab {
 			ratingEmptyOnly:       this.filterRatingEmptyOnly,
 			priorityEmptyOnly:     this.filterPriorityEmptyOnly,
 			recentlyArrivedOnly:   this.filterRecentlyArrivedOnly,
+			groupsOnly:            this.filterGroupsOnly,
 		};
 		void this.plugin.saveSettings();
 	}
@@ -141,7 +175,8 @@ export class ListTab {
 			this.filterGroupExclude.size > 0 ||
 			this.filterRatingEmptyOnly ||
 			this.filterPriorityEmptyOnly ||
-			this.filterRecentlyArrivedOnly;
+			this.filterRecentlyArrivedOnly ||
+			this.filterGroupsOnly;
 	}
 
 	private clearAllFilters(): void {
@@ -153,6 +188,7 @@ export class ListTab {
 		this.filterRatingEmptyOnly      = false;
 		this.filterPriorityEmptyOnly    = false;
 		this.filterRecentlyArrivedOnly  = false;
+		this.filterGroupsOnly           = false;
 	}
 
 	private applyPreset(preset: SavedFilterPreset): void {
@@ -164,6 +200,7 @@ export class ListTab {
 		this.filterRatingEmptyOnly      = preset.ratingEmptyOnly      ?? false;
 		this.filterPriorityEmptyOnly    = preset.priorityEmptyOnly    ?? false;
 		this.filterRecentlyArrivedOnly  = preset.recentlyArrivedOnly  ?? false;
+		this.filterGroupsOnly           = preset.groupsOnly           ?? false;
 	}
 
 	private deactivateSavedFilter(): void {
@@ -211,63 +248,686 @@ export class ListTab {
 			this.scrollCleanup();
 			this.scrollCleanup = null;
 		}
+		this.destroyVirtualScroll();
+		// Make sure any debounced episode-click save reaches disk before we
+		// lose the tab instance (e.g. on tab switch or view close).
+		void this.dataManager.flushPendingSave();
 	}
 
 	render(): void {
 		this._lastScrollTop = this.container.scrollTop || this._lastScrollTop;
+		this.activeCleanups.forEach((fn) => fn());
+		this.activeCleanups = [];
 		this.container.empty();
 		this.container.addClass('wl-list');
 		this.renderSubTabBar();
 		if (this.currentSubTab === 'list') {
 			this.renderListContent();
 		} else {
-			this.renderHistoryContent();
+			this.renderCardsContent();
 		}
 	}
 
 	private renderSubTabBar(): void {
 		const bar = this.container.createDiv({ cls: 'wl-inner-tab-bar' });
+		const cardsBtn = bar.createEl('button', {
+			cls: `wl-inner-tab-btn${this.currentSubTab === 'cards' ? ' is-active' : ''}`,
+			text: 'Cards',
+		});
 		const listBtn = bar.createEl('button', {
 			cls: `wl-inner-tab-btn${this.currentSubTab === 'list' ? ' is-active' : ''}`,
 			text: 'List',
 		});
-		const histBtn = bar.createEl('button', {
-			cls: `wl-inner-tab-btn${this.currentSubTab === 'history' ? ' is-active' : ''}`,
-			text: 'History',
-		});
 		listBtn.addEventListener('click', () => {
 			if (this.currentSubTab === 'list') return;
+			this.destroyVirtualScroll();
 			this.currentSubTab = 'list';
 			this.render();
 		});
-		histBtn.addEventListener('click', () => {
-			if (this.currentSubTab === 'history') return;
-			this.currentSubTab = 'history';
+		cardsBtn.addEventListener('click', () => {
+			if (this.currentSubTab === 'cards') return;
+			this.currentSubTab = 'cards';
 			this.render();
 		});
 	}
 
 	private renderListContent(): void {
 		this.renderHeader();
-		this.renderSearch();
 		this.container.createDiv({ cls: 'wl-divider' });
 		this.renderTable(this._lastScrollTop);
 	}
 
-	private renderHistoryContent(): void {
-		const entries = this.plugin.historyManager?.getEntries() ?? [];
-		if (entries.length === 0) {
-			this.container.createDiv({
-				cls: 'wl-history-empty',
-				text: 'No history yet. Actions in the Watchlist will appear here.',
-			});
+	private renderCardsContent(): void {
+		this.renderHeader();
+		this.container.createDiv({ cls: 'wl-divider' });
+		this.renderCardsView();
+	}
+
+	private renderCardsView(): void {
+		this.destroyVirtualScroll();
+		const items = this.getDisplayItems();
+		this.cardsDisplayItems = items;
+		this.renderResultsCount(this.container, items);
+		if (items.length === 0) {
+			const empty = this.container.createDiv({ cls: 'wl-cards-empty' });
+			empty.createSpan({ cls: 'wl-cards-empty-icon', text: '🎬' });
+			empty.createEl('p', { cls: 'wl-cards-empty-msg', text: 'No titles match your filters' });
 			return;
 		}
-		const list = this.container.createDiv({ cls: 'wl-history-list' });
-		for (const entry of entries) {
-			const row = list.createDiv({ cls: 'wl-history-entry' });
-			row.textContent = entry.message;
+
+		const scroll = this.container.createDiv({ cls: 'wl-cards-scroll-container' });
+		const spacer = scroll.createDiv({ cls: 'wl-cards-scroll-spacer' });
+		const grid = spacer.createDiv({ cls: 'wl-cards-grid wl-cards-grid-virtual' });
+		this.cardsScrollContainer = scroll;
+		this.cardsScrollSpacer = spacer;
+		this.cardsGridEl = grid;
+		this.cardsLastFirst = -1;
+		this.cardsLastLast = -1;
+
+		this.cardsScrollHandler = () => {
+			const scrollTop = scroll.scrollTop;
+			this._cardsPersistentScrollTop = scrollTop;
+			// Only schedule a render when the user has scrolled at least half a
+			// row's height — below that, the visible range cannot change so the
+			// rerun would do nothing useful.
+			const threshold = this.cardsRowHeight > 0 ? this.cardsRowHeight / 2 : 50;
+			if (Math.abs(scrollTop - this.cardsLastScrollTop) < threshold) return;
+			this.cardsLastScrollTop = scrollTop;
+			if (this.cardsScrollRAF !== null) return;
+			this.cardsScrollRAF = window.requestAnimationFrame(() => {
+				this.cardsScrollRAF = null;
+				this.renderVisibleCards();
+			});
+		};
+		scroll.addEventListener('scroll', this.cardsScrollHandler, { passive: true });
+
+		// Let renderVisibleCards detect range changes. We do NOT reset
+		// cardsLastFirst/Last when width shifts (e.g. scrollbar appears after
+		// the spacer height is set) — the CSS grid reflows on its own and the
+		// internal range comparison already short-circuits if no items moved.
+		// Resetting here caused a spurious second "initial" render.
+		this.cardsResizeObserver = new ResizeObserver(() => {
+			this.renderVisibleCards();
+		});
+		this.cardsResizeObserver.observe(scroll);
+
+		// Restore scroll position from before the last re-render. The spacer
+		// height isn't set yet (renderVisibleCards does that), so do a first
+		// pass to size the spacer, then assign scrollTop, then re-run so the
+		// correct row range is materialized.
+		if (this._cardsPersistentScrollTop > 0) {
+			this.renderVisibleCards();
+			scroll.scrollTop = this._cardsPersistentScrollTop;
+			this.cardsLastScrollTop = this._cardsPersistentScrollTop;
+			this.renderVisibleCards();
 		}
+	}
+
+	private getCardsGridMetrics(containerWidth: number): {
+		cols: number;
+		cardWidth: number;
+		cardHeight: number;
+		rowHeight: number;
+	} {
+		const gap = 12;
+		const minCardWidth = 140;
+		const cols = Math.max(1, Math.floor((containerWidth + gap) / (minCardWidth + gap)));
+		const cardWidth = (containerWidth - gap * (cols - 1)) / cols;
+		const cardHeight = cardWidth * 1.5;
+		const rowHeight = cardHeight + gap;
+		return { cols, cardWidth, cardHeight, rowHeight };
+	}
+
+	private renderVisibleCards(): void {
+		const scroll = this.cardsScrollContainer;
+		const spacer = this.cardsScrollSpacer;
+		const grid = this.cardsGridEl;
+		if (!scroll || !spacer || !grid) return;
+
+		const scrollTop = scroll.scrollTop;
+		const viewportHeight = scroll.clientHeight;
+		const width = scroll.clientWidth;
+		if (width <= 0 || viewportHeight <= 0) return;
+
+		const { cols, cardWidth, cardHeight, rowHeight } = this.getCardsGridMetrics(width);
+		this.cardsRowHeight = rowHeight;
+		const totalItems = this.cardsDisplayItems.length;
+		const totalRows = Math.ceil(totalItems / cols);
+
+		const firstVisibleRow = Math.max(0, Math.floor(scrollTop / rowHeight) - 2);
+		const lastVisibleRow = Math.min(
+			totalRows - 1,
+			Math.ceil((scrollTop + viewportHeight) / rowHeight) + 2,
+		);
+		const firstIndex = firstVisibleRow * cols;
+		const lastIndex = Math.min(totalItems - 1, (lastVisibleRow + 1) * cols - 1);
+
+		spacer.style.height = `${totalRows * rowHeight}px`;
+		grid.style.transform = `translateY(${firstVisibleRow * rowHeight}px)`;
+		grid.style.setProperty('--wl-cards-cols', String(cols));
+		grid.style.setProperty('--wl-card-height', `${cardHeight}px`);
+
+		const oldFirst = this.cardsLastFirst;
+		const oldLast = this.cardsLastLast;
+		if (firstIndex === oldFirst && lastIndex === oldLast) return;
+
+		const isInitial = oldFirst === -1 || oldLast === -1;
+		const hasOverlap = !isInitial && firstIndex <= oldLast && lastIndex >= oldFirst;
+
+		this.cardsLastFirst = firstIndex;
+		this.cardsLastLast = lastIndex;
+
+		if (isInitial || !hasOverlap) {
+			this.fullRenderCards(grid, firstIndex, lastIndex, cardWidth, cardHeight);
+			this.setupCardsObserver(scroll);
+			return;
+		}
+
+		// Incremental update — trim from edges, then add what's new.
+		if (firstIndex > oldFirst) {
+			const removeCount = firstIndex - oldFirst;
+			for (let i = 0; i < removeCount; i++) {
+				const el = grid.firstElementChild as HTMLElement | null;
+				if (!el) break;
+				this.unobserveAndRemove(el);
+			}
+		}
+		if (lastIndex < oldLast) {
+			const removeCount = oldLast - lastIndex;
+			for (let i = 0; i < removeCount; i++) {
+				const el = grid.lastElementChild as HTMLElement | null;
+				if (!el) break;
+				this.unobserveAndRemove(el);
+			}
+		}
+		if (firstIndex < oldFirst) {
+			const addEnd = Math.min(oldFirst - 1, lastIndex);
+			const fragment = activeDocument.createDocumentFragment();
+			for (let i = firstIndex; i <= addEnd; i++) {
+				const card = this.buildCardElement(i, cardWidth, cardHeight);
+				if (card) fragment.appendChild(card);
+			}
+			grid.insertBefore(fragment, grid.firstChild);
+		}
+		if (lastIndex > oldLast) {
+			const addStart = Math.max(oldLast + 1, firstIndex);
+			const fragment = activeDocument.createDocumentFragment();
+			for (let i = addStart; i <= lastIndex; i++) {
+				const card = this.buildCardElement(i, cardWidth, cardHeight);
+				if (card) fragment.appendChild(card);
+			}
+			grid.appendChild(fragment);
+		}
+
+		this.setupCardsObserver(scroll);
+	}
+
+	private fullRenderCards(
+		grid: HTMLElement,
+		firstIndex: number,
+		lastIndex: number,
+		cardWidth: number,
+		cardHeight: number,
+	): void {
+		this.observedCards.clear();
+		grid.empty();
+		const fragment = activeDocument.createDocumentFragment();
+		for (let i = firstIndex; i <= lastIndex; i++) {
+			const card = this.buildCardElement(i, cardWidth, cardHeight);
+			if (card) fragment.appendChild(card);
+		}
+		grid.appendChild(fragment);
+	}
+
+	private buildCardElement(
+		index: number,
+		cardWidth: number,
+		cardHeight: number,
+	): HTMLElement | null {
+		const item = this.cardsDisplayItems[index];
+		if (!item) return null;
+		const tmp = activeDocument.createElement('div');
+		if (item.kind === 'title') {
+			this.renderTitleCard(tmp, item.data, cardWidth, cardHeight);
+		} else {
+			this.renderGroupCard(tmp, item.data, item.members, cardWidth, cardHeight);
+		}
+		return tmp.firstElementChild as HTMLElement | null;
+	}
+
+	private unobserveAndRemove(el: HTMLElement): void {
+		if (this.cardsObserver && this.observedCards.has(el)) {
+			this.cardsObserver.unobserve(el);
+			this.observedCards.delete(el);
+		}
+		el.remove();
+	}
+
+	private setupCardsObserver(container: HTMLElement): void {
+		if (!this.cardsObserver) {
+			this.cardsObserver = new IntersectionObserver(
+				(entries) => this.handleCardIntersection(entries),
+				{
+					root: container,
+					rootMargin: '0px',
+					threshold: 0,
+				},
+			);
+		}
+		const cards = (this.cardsGridEl ?? container).querySelectorAll(
+			'.wl-card[data-needs-poster="true"]',
+		);
+		cards.forEach((card) => {
+			const el = card as HTMLElement;
+			if (!this.observedCards.has(el)) {
+				this.cardsObserver!.observe(el);
+				this.observedCards.add(el);
+			}
+		});
+	}
+
+	private handleCardIntersection(entries: IntersectionObserverEntry[]): void {
+		for (const entry of entries) {
+			if (!entry.isIntersecting) continue;
+			const card = entry.target as HTMLElement;
+			const titleId = card.dataset.titleId;
+			if (!titleId) continue;
+
+			this.cardsObserver?.unobserve(card);
+
+			const title = this.dataManager.getTitles().find((t) => t.id === titleId);
+			if (!title) continue;
+			// Manual override takes priority — skip auto-fetch for manual overrides
+			// and for titles whose auto-fetched poster is already populated.
+			if (title.manualPosterUrl && title.manualPosterUrl.trim() !== '') continue;
+			if (title.posterUrl !== '') continue;
+
+			const placeholder = card.querySelector('.wl-card-poster-placeholder');
+			placeholder?.addClass('is-loading');
+
+			void this.plugin.posterService.enqueue(title).then((url) => {
+				placeholder?.removeClass('is-loading');
+				if (url) {
+					this.applyPosterToCard(card, url);
+				}
+			});
+		}
+	}
+
+	private applyPosterToCard(card: HTMLElement, url: string): void {
+		const img = card.querySelector<HTMLImageElement>('.wl-card-poster');
+		const placeholder = card.querySelector<HTMLElement>('.wl-card-poster-placeholder');
+		if (!img) return;
+		img.onload = () => {
+			img.style.display = 'block';
+			if (placeholder) placeholder.style.display = 'none';
+		};
+		img.onerror = () => {
+			const titleId = card.dataset.titleId;
+			if (titleId) {
+				this.dataManager.updatePosterUrl(titleId, 'none');
+			}
+		};
+		img.src = url;
+	}
+
+	private destroyCardsObserver(): void {
+		if (this.cardsObserver) {
+			this.cardsObserver.disconnect();
+			this.cardsObserver = null;
+		}
+		this.observedCards.clear();
+		this.plugin.posterService?.clearQueue();
+	}
+
+	private destroyVirtualScroll(): void {
+		if (this.cardsScrollRAF !== null) {
+			window.cancelAnimationFrame(this.cardsScrollRAF);
+			this.cardsScrollRAF = null;
+		}
+		if (this.cardsResizeObserver) {
+			this.cardsResizeObserver.disconnect();
+			this.cardsResizeObserver = null;
+		}
+		if (this.cardsScrollContainer && this.cardsScrollHandler) {
+			this.cardsScrollContainer.removeEventListener('scroll', this.cardsScrollHandler);
+		}
+		this.cardsScrollHandler = null;
+		this.cardsScrollContainer = null;
+		this.cardsScrollSpacer = null;
+		this.cardsGridEl = null;
+		this.cardsDisplayItems = [];
+		this.cardsLastFirst = -1;
+		this.cardsLastLast = -1;
+		this.cardsLastScrollTop = 0;
+		this.cardsRowHeight = 0;
+		this.destroyCardsObserver();
+	}
+
+	private renderTitleCard(
+		parent: HTMLElement,
+		title: WatchLogTitle,
+		cardWidth?: number,
+		cardHeight?: number,
+	): void {
+		const typeDef = this.getTagDef(title.type, this.plugin.settings.types);
+		const statusDef = this.getTagDef(title.status, this.plugin.settings.statuses);
+		const typeColor = typeDef
+			? getThemedColor(title.type, typeDef.color, this.plugin.settings.colorTheme)
+			: '#888780';
+
+		const card = parent.createDiv({ cls: 'wl-card' });
+		card.dataset.titleId = title.id;
+		// Width is distributed by the parent CSS grid (1fr columns) — do not set
+		// an explicit width here. Setting fractional pixel widths per card caused
+		// flex-wrap to overflow and shift the grid left by one slot per scroll.
+		if (cardHeight !== undefined) card.style.height = `${cardHeight}px`;
+
+		const placeholder = card.createDiv({ cls: 'wl-card-poster-placeholder' });
+		placeholder.style.backgroundColor = typeColor;
+		const letter = (title.title.trim().charAt(0) || '?').toUpperCase();
+		placeholder.createSpan({ text: letter });
+
+		const img = card.createEl('img', { cls: 'wl-card-poster' });
+		img.alt = title.title;
+
+		const display = getDisplayPoster(title);
+		const isManual = !!(title.manualPosterUrl && title.manualPosterUrl.trim() !== '');
+		if (display && display.startsWith('http')) {
+			img.src = display;
+			img.style.display = 'block';
+			placeholder.style.display = 'none';
+			img.onerror = () => {
+				img.style.display = 'none';
+				placeholder.style.display = '';
+				// Only mark the auto-fetched URL as 'none' — don't touch a user's manual choice.
+				if (!isManual) this.dataManager.updatePosterUrl(title.id, 'none');
+			};
+		} else if (!isManual && title.posterUrl === '') {
+			card.dataset.needsPoster = 'true';
+		}
+
+		if (statusDef) {
+			const statusBadge = card.createSpan({
+				cls: 'wl-card-status-badge',
+				text: title.status,
+			});
+			statusBadge.style.backgroundColor = getThemedColor(
+				title.status,
+				statusDef.color,
+				this.plugin.settings.colorTheme,
+			);
+		}
+
+		const overlay = card.createDiv({ cls: 'wl-card-overlay' });
+		overlay.createSpan({ cls: 'wl-card-title', text: title.title });
+		const typeBadge = overlay.createSpan({
+			cls: 'wl-card-type-badge',
+			text: title.type,
+		});
+		typeBadge.style.backgroundColor = typeColor;
+
+		// Progress bar
+		const total = title.totalEpisodes;
+		if (total && total > 0) {
+			const isCompleted = title.status === 'Completed';
+			const ratio = isCompleted
+				? 1
+				: Math.max(0, Math.min(1, title.watchedEpisodes.length / total));
+			const bar = overlay.createDiv({ cls: 'wl-card-progress-bar' });
+			const fill = bar.createDiv({ cls: 'wl-card-progress-fill' });
+			fill.style.width = `${ratio * 100}%`;
+		}
+
+		const menuBtn = card.createEl('button', {
+			cls: 'wl-card-menu-btn',
+			text: '⋮',
+		});
+		menuBtn.setAttr('aria-label', 'More actions');
+		menuBtn.addEventListener('click', (e) => {
+			e.stopPropagation();
+			this.openCardContextMenu(card, menuBtn, title);
+		});
+
+		card.addEventListener('click', () => {
+			this.openDetailModalForTitle(title.id);
+		});
+	}
+
+	private openCardContextMenu(
+		card: HTMLElement,
+		anchorBtn: HTMLElement,
+		title: WatchLogTitle,
+	): void {
+		// Close any existing menu first
+		this.container.querySelectorAll('.wl-card-context-menu').forEach((el) => el.remove());
+
+		const menu = card.createDiv({ cls: 'wl-card-context-menu' });
+		const editItem = menu.createDiv({ cls: 'wl-card-context-item', text: 'Edit title' });
+		const refreshItem = menu.createDiv({
+			cls: 'wl-card-context-item',
+			text: 'Refresh poster',
+		});
+		const refreshRatingItem = menu.createDiv({
+			cls: 'wl-card-context-item',
+			text: 'Refresh rating',
+		});
+
+		// Edge-align if the button is close to the right edge of the container
+		const cardRect = card.getBoundingClientRect();
+		const containerRect = this.container.getBoundingClientRect();
+		if (cardRect.right > containerRect.right - 180) {
+			menu.classList.add('is-right-aligned');
+		}
+
+		// Capture the owning document once so add/remove can't desync across popout windows.
+		const doc = card.ownerDocument;
+		const closeMenu = (): void => {
+			menu.remove();
+			doc.removeEventListener('click', onDocClick, true);
+		};
+		const onDocClick = (e: MouseEvent): void => {
+			if (!menu.contains(e.target as Node) && e.target !== anchorBtn) {
+				closeMenu();
+			}
+		};
+		// Defer registration so the click that opened the menu doesn't close it
+		window.setTimeout(() => doc.addEventListener('click', onDocClick, true), 0);
+		this.activeCleanups.push(() => doc.removeEventListener('click', onDocClick, true));
+
+		editItem.addEventListener('click', (e) => {
+			e.stopPropagation();
+			closeMenu();
+			this.openEditModalForTitle(title.id);
+		});
+		refreshItem.addEventListener('click', (e) => {
+			e.stopPropagation();
+			closeMenu();
+			this.refreshPosterForCard(card, title.id);
+		});
+		refreshRatingItem.addEventListener('click', (e) => {
+			e.stopPropagation();
+			closeMenu();
+			void refreshCommunityRating(this.plugin, title.id, null, true);
+		});
+	}
+
+	private refreshPosterForCard(card: HTMLElement, titleId: string): void {
+		const fresh = this.dataManager.getTitle(titleId);
+		if (!fresh) return;
+		this.dataManager.updatePosterUrl(titleId, '');
+		card.dataset.needsPoster = 'true';
+
+		const img = card.querySelector<HTMLImageElement>('.wl-card-poster');
+		const placeholder = card.querySelector<HTMLElement>(
+			'.wl-card-poster-placeholder',
+		);
+		if (img) {
+			img.removeAttribute('src');
+			img.style.display = 'none';
+		}
+		if (placeholder) {
+			placeholder.style.display = '';
+			placeholder.addClass('is-loading');
+		}
+
+		// Refetch via the queue
+		void this.plugin.posterService.enqueue(fresh).then((url) => {
+			placeholder?.removeClass('is-loading');
+			if (url) this.applyPosterToCard(card, url);
+		});
+	}
+
+	private renderGroupCard(
+		parent: HTMLElement,
+		group: WatchLogGroup,
+		members: WatchLogTitle[],
+		cardWidth?: number,
+		cardHeight?: number,
+	): void {
+		const primaryType = members[0]?.type ?? '';
+		const typeDef = primaryType
+			? this.getTagDef(primaryType, this.plugin.settings.types)
+			: undefined;
+		const typeColor = typeDef
+			? getThemedColor(primaryType, typeDef.color, this.plugin.settings.colorTheme)
+			: '#888780';
+
+		const card = parent.createDiv({ cls: 'wl-card wl-card-group' });
+		if (cardHeight !== undefined) card.style.height = `${cardHeight}px`;
+
+		const placeholder = card.createDiv({ cls: 'wl-card-poster-placeholder' });
+		placeholder.style.backgroundColor = typeColor;
+		const letter = (group.name.trim().charAt(0) || '?').toUpperCase();
+		placeholder.createSpan({ text: letter });
+
+		const overlay = card.createDiv({ cls: 'wl-card-overlay' });
+		overlay.createSpan({ cls: 'wl-card-title', text: group.name });
+		const subtitle = overlay.createSpan({ cls: 'wl-card-type-badge' });
+		subtitle.style.backgroundColor = typeColor;
+		subtitle.textContent = `${members.length} title${members.length !== 1 ? 's' : ''}`;
+
+		const menuBtn = card.createEl('button', {
+			cls: 'wl-card-menu-btn',
+			text: '⋮',
+		});
+		menuBtn.setAttr('aria-label', 'Group actions');
+		menuBtn.addEventListener('click', (e) => {
+			e.stopPropagation();
+			this.openGroupCardContextMenu(card, menuBtn, group);
+		});
+
+		card.addEventListener('click', () => {
+			new GroupDetailModal(this.plugin.app, this.plugin, group, members, () => {
+				this.render();
+			}).open();
+		});
+	}
+
+	private openGroupCardContextMenu(
+		card: HTMLElement,
+		anchorBtn: HTMLElement,
+		group: WatchLogGroup,
+	): void {
+		this.container.querySelectorAll('.wl-card-context-menu').forEach((el) => el.remove());
+
+		const menu = card.createDiv({ cls: 'wl-card-context-menu' });
+		const renameItem = menu.createDiv({ cls: 'wl-card-context-item', text: 'Edit name' });
+		const deleteItem = menu.createDiv({
+			cls: 'wl-card-context-item',
+			text: 'Delete group',
+		});
+
+		const cardRect = card.getBoundingClientRect();
+		const containerRect = this.container.getBoundingClientRect();
+		if (cardRect.right > containerRect.right - 180) {
+			menu.classList.add('is-right-aligned');
+		}
+
+		// Capture the owning document once so add/remove can't desync across popout windows.
+		const doc = card.ownerDocument;
+		const closeMenu = (): void => {
+			menu.remove();
+			doc.removeEventListener('click', onDocClick, true);
+		};
+		const onDocClick = (e: MouseEvent): void => {
+			if (!menu.contains(e.target as Node) && e.target !== anchorBtn) {
+				closeMenu();
+			}
+		};
+		window.setTimeout(() => doc.addEventListener('click', onDocClick, true), 0);
+		this.activeCleanups.push(() => doc.removeEventListener('click', onDocClick, true));
+
+		renameItem.addEventListener('click', (e) => {
+			e.stopPropagation();
+			closeMenu();
+			this.openRenameGroupPrompt(group);
+		});
+		deleteItem.addEventListener('click', (e) => {
+			e.stopPropagation();
+			closeMenu();
+			new ConfirmModal(
+				this.plugin.app,
+				`Delete group "${group.name}"? All titles inside will be returned to the main list.`,
+				() => {
+					void this.dataManager.removeGroup(group.id).then(() => {
+						this.expandedGroups.delete(group.id);
+						this.render();
+					});
+				},
+			).open();
+		});
+	}
+
+	private openRenameGroupPrompt(group: WatchLogGroup): void {
+		const modal = new Modal(this.plugin.app);
+		modal.titleEl.setText('Rename group');
+		const input = modal.contentEl.createEl('input', {
+			cls: 'wl-input',
+			attr: { type: 'text', value: group.name, placeholder: 'Group name' },
+		});
+		input.style.width = '100%';
+		const btnRow = modal.contentEl.createDiv({ cls: 'wl-modal-btn-row' });
+		const submit = (): void => {
+			const newName = input.value.trim();
+			if (newName && newName !== group.name) {
+				void this.dataManager
+					.updateGroup({ ...group, name: newName })
+					.then(() => this.render());
+			}
+			modal.close();
+		};
+		btnRow
+			.createEl('button', { cls: 'wl-btn wl-btn-primary', text: 'Save' })
+			.addEventListener('click', submit);
+		btnRow
+			.createEl('button', { cls: 'wl-btn', text: 'Cancel' })
+			.addEventListener('click', () => modal.close());
+		input.addEventListener('keydown', (e) => {
+			if (e.key === 'Enter') submit();
+			else if (e.key === 'Escape') modal.close();
+		});
+		modal.open();
+		window.setTimeout(() => {
+			input.focus();
+			input.select();
+		}, 0);
+	}
+
+	private openEditModalForTitle(titleId: string): void {
+		const current = this.dataManager.getTitle(titleId);
+		if (!current) return;
+		new EditTitleModal(this.plugin.app, this.plugin, this.dataManager, current, () => {
+			this.render();
+		}).open();
+	}
+
+	private openDetailModalForTitle(titleId: string): void {
+		const current = this.dataManager.getTitle(titleId);
+		if (!current) return;
+		new TitleDetailModal(this.plugin.app, this.plugin, current, () => {
+			this.render();
+		}).open();
 	}
 
 	// ── Header ────────────────────────────────────────────────────────────────────
@@ -289,6 +949,9 @@ export class ListTab {
 
 		const controls = header.createDiv({ cls: 'wl-header-controls' });
 
+		// Search sits inline as the first item in the toolbar row (matches Reading)
+		this.renderSearch(controls);
+
 		// Saved filter preset button (shown only when a preset is stored)
 		const preset = this.dataManager.getSavedFilterPreset();
 		if (preset) {
@@ -302,7 +965,11 @@ export class ListTab {
 				this.savedFilterActive = true;
 				savedBtn.addClass('wl-btn-preset-active');
 				this.saveFiltersToSettings();
-				this.rerenderTable();
+				// Full render so the filter bar (Clear button, filter dot) is
+				// rebuilt with the new active-filter state on whichever sub-tab
+				// is current — rerenderTable/rerenderActiveSubTab only refresh
+				// the content area, not the header.
+				this.render();
 			});
 		} else {
 			this.savedFilterBtnEl = null;
@@ -347,8 +1014,11 @@ export class ListTab {
 			this.render();
 		});
 
+		// Add buttons pinned to the far right of the toolbar row
+		const rightGroup = controls.createDiv({ cls: 'wl-header-controls-right' });
+
 		// + Add from URL
-		const addUrlBtn = controls.createEl('button', { cls: 'wl-btn wl-btn-sm', text: '+add from URL' });
+		const addUrlBtn = rightGroup.createEl('button', { cls: 'wl-btn wl-btn-sm wl-btn-success', text: '+add from URL' });
 		addUrlBtn.addEventListener('click', () => {
 			new AddFromUrlModal(this.plugin.app, this.plugin, this.dataManager, () => {
 				this.render();
@@ -356,8 +1026,8 @@ export class ListTab {
 		});
 
 		// + Add
-		const addBtnWrap = controls.createDiv({ cls: 'wl-add-btn-wrap' });
-		const addBtn = addBtnWrap.createEl('button', { cls: 'wl-add-btn', text: '+ add' });
+		const addBtnWrap = rightGroup.createDiv({ cls: 'wl-add-btn-wrap' });
+		const addBtn = addBtnWrap.createEl('button', { cls: 'wl-add-btn wl-btn-success', text: '+ add' });
 		addBtn.addEventListener('click', (e) => {
 			e.stopPropagation();
 			this.openAddTitleModal();
@@ -408,6 +1078,7 @@ export class ListTab {
 				filterRatingEmptyOnly:    this.filterRatingEmptyOnly,
 				filterPriorityEmptyOnly:  this.filterPriorityEmptyOnly,
 				filterRecentlyArrivedOnly: this.filterRecentlyArrivedOnly,
+				filterGroupsOnly:         this.filterGroupsOnly,
 			};
 
 			const sections: Array<{ label: string; opts: string[]; excludeSet: Set<string> }> = [
@@ -464,6 +1135,7 @@ export class ListTab {
 							ratingEmptyOnly:       draft.filterRatingEmptyOnly,
 							priorityEmptyOnly:     draft.filterPriorityEmptyOnly,
 							recentlyArrivedOnly:   draft.filterRecentlyArrivedOnly,
+							groupsOnly:            draft.filterGroupsOnly,
 						});
 					} else {
 						await this.dataManager.setSavedFilterPreset(null);
@@ -474,7 +1146,7 @@ export class ListTab {
 				})();
 			});
 
-			// Collapsed state per section (collapsed by default) — QoL 3
+			// Collapsed state per section (collapsed by default)
 			const sectionCollapsed: Record<string, boolean> = {};
 			for (const { label } of sections) {
 				sectionCollapsed[label] = true;
@@ -483,7 +1155,7 @@ export class ListTab {
 			for (const { label, opts, excludeSet } of sections) {
 				const section = panel.createDiv({ cls: 'wl-filter-section' });
 
-				// Collapsible header (QoL 3)
+				// Collapsible header
 				const sectionHeader = section.createDiv({ cls: 'wl-filter-section-header' });
 				sectionHeader.createSpan({ cls: 'wl-filter-label', text: label });
 				const chevron = sectionHeader.createSpan({ cls: 'wl-filter-chevron', text: '▼' });
@@ -499,7 +1171,13 @@ export class ListTab {
 					chevron.textContent = collapsed ? '▼' : '▲';
 				});
 
-				// Feature 1 — "Recently arrived" checkbox in Status section
+				// "All" toggle — first item inside the section, styled like
+				// "Recently arrived" and "Groups only".
+				const allRow = content.createDiv({ cls: 'wl-filter-checkbox-row' });
+				const allCb = allRow.createEl('input', { attr: { type: 'checkbox' } });
+				allRow.createSpan({ cls: 'wl-filter-all-toggle', text: '◆ All' });
+
+				// "Recently arrived" checkbox in Status section
 				if (label === 'Status') {
 					const raRow = content.createDiv({ cls: 'wl-filter-checkbox-row' });
 					const raCb = raRow.createEl('input', { attr: { type: 'checkbox' } });
@@ -517,7 +1195,7 @@ export class ListTab {
 					});
 				}
 
-				// QoL 4 — "Empty" checkbox for Rating and Priority sections
+				// "Empty" checkbox for Rating and Priority sections
 				let emptyCb: HTMLInputElement | null = null;
 				const optionCbs: HTMLInputElement[] = [];
 				const statusOptionCbs: HTMLInputElement[] = [];
@@ -540,6 +1218,18 @@ export class ListTab {
 							excludeSet.clear();
 						}
 					});
+				}
+
+				// "Groups only" toggle at top of Group section
+				if (label === 'Group') {
+					const goRow = content.createDiv({ cls: 'wl-filter-checkbox-row' });
+					const goCb = goRow.createEl('input', { attr: { type: 'checkbox' } });
+					goCb.checked = draft.filterGroupsOnly;
+					goRow.createSpan({ cls: 'wl-recently-arrived-filter', text: '◇ Groups only' });
+					goCb.addEventListener('change', () => {
+						draft.filterGroupsOnly = goCb.checked;
+					});
+					content.createDiv({ cls: 'wl-filter-section-divider' });
 				}
 
 				for (const opt of opts) {
@@ -568,6 +1258,34 @@ export class ListTab {
 						}
 					});
 				}
+
+				// Reflect current state in the "All" checkbox.
+				const syncAllCb = (): void => {
+					allCb.checked = optionCbs.length > 0 && optionCbs.every((c) => c.checked);
+				};
+				syncAllCb();
+
+				const toggleAll = (): void => {
+					const allChecked = optionCbs.length > 0 && optionCbs.every((c) => c.checked);
+					if (allChecked) {
+						for (const optCb of optionCbs) optCb.checked = false;
+						for (const opt of opts) excludeSet.add(opt);
+					} else {
+						for (const optCb of optionCbs) optCb.checked = true;
+						excludeSet.clear();
+					}
+					syncAllCb();
+				};
+				allCb.addEventListener('click', (ev) => {
+					ev.stopPropagation();
+					// We drive the visual + data state ourselves; cancel the native toggle.
+					toggleAll();
+				});
+				allRow.addEventListener('click', (ev) => {
+					if (ev.target === allCb) return;
+					ev.stopPropagation();
+					toggleAll();
+				});
 			}
 
 			// Apply — commits draft to live state, re-renders, and closes the panel
@@ -582,6 +1300,7 @@ export class ListTab {
 				this.filterRatingEmptyOnly      = draft.filterRatingEmptyOnly;
 				this.filterPriorityEmptyOnly    = draft.filterPriorityEmptyOnly;
 				this.filterRecentlyArrivedOnly  = draft.filterRecentlyArrivedOnly;
+				this.filterGroupsOnly           = draft.filterGroupsOnly;
 				this.saveFiltersToSettings();
 				this.deactivateSavedFilter();
 				const active = this.hasActiveFilter();
@@ -692,7 +1411,7 @@ export class ListTab {
 
 		// Delete button — same style as group delete button
 		const deleteBtn = bar.createEl('button', {
-			cls: 'wl-group-action-btn wl-group-action-btn-delete',
+			cls: 'wl-group-action-btn wl-group-action-btn-delete wl-btn-danger',
 			text: '✕',
 		});
 		deleteBtn.title = 'Delete selected';
@@ -732,12 +1451,20 @@ export class ListTab {
 				const newStatus = statusSelect.value;
 				if (!newStatus) return;
 				const groupIds = new Set(this.dataManager.getGroups().map((g) => g.id));
+				const updated: WatchLogTitle[] = [];
 				for (const id of this.selectedItems) {
 					if (groupIds.has(id)) continue;
 					const t = this.dataManager.getTitle(id);
 					if (!t) continue;
 					t.status = newStatus;
-					await this.dataManager.updateTitle(t);
+					this.dataManager.updateTitleSilent(t);
+					updated.push(t);
+				}
+				if (updated.length > 0) {
+					await this.dataManager.save();
+					for (const t of updated) {
+						await this.dataManager.updateMarkdownFile(t);
+					}
 				}
 				statusSelect.value = '';
 				this.render();
@@ -826,10 +1553,11 @@ export class ListTab {
 
 	// ── Search & Controls ─────────────────────────────────────────────────────────
 
-	private renderSearch(): void {
-		const searchWrap = this.container.createDiv({ cls: 'wl-search-wrap' });
+	private renderSearch(parent: HTMLElement): void {
+		// Inline compact search inside the toolbar row, reusing Reading's classes
+		const searchWrap = parent.createDiv({ cls: 'wl-reading-search-wrap' });
 		const input = searchWrap.createEl('input', {
-			cls: 'wl-search-input',
+			cls: 'wl-reading-search-input',
 			attr: { type: 'text', placeholder: 'Search titles...' },
 		});
 		input.value = this.searchQuery;
@@ -837,26 +1565,12 @@ export class ListTab {
 		input.addEventListener('input', () => {
 			this.searchQuery = input.value;
 			window.clearTimeout(searchDebounce);
-			searchDebounce = window.setTimeout(() => { this.rerenderTable(); }, 250);
+			searchDebounce = window.setTimeout(() => {
+				this.rerenderActiveSubTab();
+			}, 250);
 		});
 	}
 
-
-	private getSortLabelFor(key: string): string {
-		const map: Record<string, string> = {
-			title:       'Title',
-			dateAdded:   'Date added',
-			progress:    'Progress',
-			rating:      'Rating',
-			priority:    'Priority',
-			started:     'Started',
-			status:      'Status',
-			dateWatched: 'Date watched',
-			timeLeft:    'Time left',
-			timeWatched: 'Time watched',
-		};
-		return map[key] ?? 'Date added';
-	}
 
 	private sortLabelToKey(label: string): string {
 		const map: Record<string, string> = {
@@ -932,10 +1646,46 @@ export class ListTab {
 	// ── Table rendering ───────────────────────────────────────────────────────────
 
 	rerenderTable(): void {
+		// Route callers to the renderer matching the active sub-tab so callers
+		// (filter apply, saved filter, sort change, row interactions, etc.) work
+		// whether the user is on List or Cards. Otherwise a List table would be
+		// appended underneath the Cards grid.
+		if (this.currentSubTab !== 'list') {
+			this.rerenderActiveSubTab();
+			return;
+		}
 		const savedScroll = this._lastScrollTop;
 		const existing = this.container.querySelector('.wl-table-section');
 		if (existing) existing.remove();
 		this.renderTable(savedScroll);
+	}
+
+	private rerenderActiveSubTab(): void {
+		if (this.currentSubTab === 'cards') {
+			this.destroyVirtualScroll();
+			// Strip both cards-view DOM and any stray list table so the two views
+			// can never coexist in the container.
+			this.container
+				.querySelectorAll('.wl-cards-scroll-container, .wl-cards-empty, .wl-table-section, .wl-results-count')
+				.forEach((el) => el.remove());
+			this.renderCardsView();
+		} else {
+			const savedScroll = this._lastScrollTop;
+			const existing = this.container.querySelector('.wl-table-section');
+			if (existing) existing.remove();
+			this.renderTable(savedScroll);
+		}
+	}
+
+	/** Renders the "N titles, M groups" count line. Shared by List and Cards views. */
+	private renderResultsCount(parent: HTMLElement, items: DisplayItem[]): void {
+		const titleCount = items.reduce((n, item) => n + (item.kind === 'title' ? 1 : 0), 0);
+		const groupCount = items.reduce((n, item) => n + (item.kind === 'group' ? 1 : 0), 0);
+		const countEl = parent.createDiv({ cls: 'wl-results-count' });
+		const parts: string[] = [];
+		if (titleCount > 0) parts.push(`${titleCount} title${titleCount !== 1 ? 's' : ''}`);
+		if (groupCount > 0) parts.push(`${groupCount} group${groupCount !== 1 ? 's' : ''}`);
+		countEl.textContent = parts.length > 0 ? parts.join(', ') : '0 titles';
 	}
 
 	private renderTable(restoreScroll?: number): void {
@@ -948,13 +1698,7 @@ export class ListTab {
 		const section = this.container.createDiv({ cls: 'wl-table-section' });
 		const items = this.getDisplayItems();
 
-		const titleCount = items.reduce((n, item) => n + (item.kind === 'title' ? 1 : 0), 0);
-		const groupCount = items.reduce((n, item) => n + (item.kind === 'group' ? 1 : 0), 0);
-		const countEl = section.createDiv({ cls: 'wl-results-count' });
-		const parts: string[] = [];
-		if (titleCount > 0) parts.push(`${titleCount} title${titleCount !== 1 ? 's' : ''}`);
-		if (groupCount > 0) parts.push(`${groupCount} group${groupCount !== 1 ? 's' : ''}`);
-		countEl.textContent = parts.length > 0 ? parts.join(', ') : '0 titles';
+		this.renderResultsCount(section, items);
 
 		const tableCls = this.selectionMode ? 'wl-table wl-selection-mode' : 'wl-table';
 		const table = section.createDiv({ cls: tableCls });
@@ -1134,7 +1878,7 @@ export class ListTab {
 		this.scrollCleanup = (): void => {
 			scrollEl.removeEventListener('scroll', onScroll);
 			if (rafId !== 0) {
-				cancelAnimationFrame(rafId);
+				window.cancelAnimationFrame(rafId);
 				rafId = 0;
 			}
 		};
@@ -1146,10 +1890,14 @@ export class ListTab {
 		const groups = this.dataManager.getGroups();
 		const groupedIds = this.dataManager.getGroupedTitleIds();
 		const allTitles = this.dataManager.getTitles();
+		const titleMap = new Map(allTitles.map((t) => [t.id, t]));
 		const q = this.searchQuery.trim().toLowerCase();
 
-		// Top-level titles (not in any group), filtered
-		const topLevel = this.getFilteredSortedTitles().filter((t) => !groupedIds.has(t.id));
+		// Top-level titles (not in any group), filtered. Hidden entirely when
+		// "Groups only" is active.
+		const topLevel = this.filterGroupsOnly
+			? []
+			: this.getFilteredSortedTitles().filter((t) => !groupedIds.has(t.id));
 
 		// Groups: skip those excluded by group filter; show if any member passes filters
 		const displayGroups: Array<{ kind: 'group'; data: WatchLogGroup; members: WatchLogTitle[] }> = [];
@@ -1157,7 +1905,7 @@ export class ListTab {
 			if (this.filterGroupExclude.size > 0 && this.filterGroupExclude.has(group.name)) continue;
 
 			const members = group.titleIds
-				.map((id) => allTitles.find((t) => t.id === id))
+				.map((id) => titleMap.get(id))
 				.filter((t): t is WatchLogTitle => t !== undefined);
 
 			// Search: show group if name matches OR any member title matches
@@ -1167,12 +1915,12 @@ export class ListTab {
 				if (!nameMatch && !memberMatch) continue;
 			}
 
-			// Show group if any member passes type/status/rating/priority filters (fixes BUG 3)
+			// Show group if any member passes type/status/rating/priority filters
 			const anyFilterActive = this.filterTypeExclude.size > 0 ||
 				this.filterStatusExclude.size > 0 ||
 				this.filterRatingExclude.size > 0 ||
 				this.filterPriorityExclude.size > 0;
-			if (anyFilterActive && !members.every((m) => this.titlePassesFilters(m))) continue;
+			if (anyFilterActive && !members.some((m) => this.titlePassesFilters(m))) continue;
 
 			displayGroups.push({ kind: 'group', data: group, members });
 		}
@@ -1545,7 +2293,7 @@ export class ListTab {
 				this.renamingGroupId = group.id;
 				this.rerenderTable();
 			});
-			const deleteBtn = nameRow.createEl('button', { cls: 'wl-group-action-btn wl-group-action-btn-delete', text: '✕' });
+			const deleteBtn = nameRow.createEl('button', { cls: 'wl-group-action-btn wl-group-action-btn-delete wl-btn-danger', text: '✕' });
 			deleteBtn.title = 'Delete group (titles are kept)';
 			deleteBtn.addEventListener('click', (e) => {
 				e.stopPropagation();
@@ -1569,7 +2317,7 @@ export class ListTab {
 			if (colored && typeDef) typeBadge.style.backgroundColor = getThemedColor(primaryType, typeDef.color, this.plugin.settings.colorTheme);
 		}
 
-		// Group stats (always visible per spec 8f)
+		// Group stats (always visible)
 		const statsEl = colTitle.createDiv({ cls: 'wl-group-stats' });
 		const timeWatched = members.reduce((s, t) => s + this.dataManager.calcTimeWatched(t), 0);
 		const timeLeft = members.reduce((s, t) => s + this.dataManager.calcTimeRemaining(t), 0);
@@ -1677,9 +2425,9 @@ export class ListTab {
 
 	private getGroupProgress(members: WatchLogTitle[]): number {
 		const totalWatched = members.reduce((s, t) => s + t.watchedEpisodes.length, 0);
-		const totalEps = members.reduce((s, t) => s + t.totalEpisodes, 0);
+		const totalEps = members.reduce((s, t) => s + this.dataManager.getEffectiveTotal(t), 0);
 		if (totalEps === 0) return 0;
-		return Math.round((totalWatched / totalEps) * 100);
+		return Math.min(100, Math.round((totalWatched / totalEps) * 100));
 	}
 
 	private getGroupStatus(members: WatchLogTitle[]): string {
@@ -1742,7 +2490,7 @@ export class ListTab {
 
 		// Stats row: 3 new blocks + existing progress block, all in one right-aligned row
 		const watchedEps = title.watchedEpisodes.length;
-		const totalEps = title.totalEpisodes;
+		const effectiveTotal = this.dataManager.getEffectiveTotal(title);
 		const timeWatched = this.dataManager.calcTimeWatched(title);
 		const timeLeft = this.dataManager.calcTimeRemainingForModal(title);
 		const progress = this.dataManager.getProgress(title);
@@ -1756,7 +2504,7 @@ export class ListTab {
 		};
 		makeStatBlock(formatTime(timeLeft), 'left');
 		makeStatBlock(formatTime(timeWatched), 'watched');
-		makeStatBlock(`${watchedEps} / ${totalEps}`, 'episodes');
+		makeStatBlock(`${watchedEps} / ${effectiveTotal}`, 'episodes');
 
 		const accRight = accRightGroup.createDiv({ cls: 'wl-acc-header-right' });
 		accRight.createDiv({ cls: 'wl-acc-percent', text: `${progress}%` });
@@ -1794,7 +2542,7 @@ export class ListTab {
 	private renderEpisodesBody(parent: HTMLElement, title: WatchLogTitle): void {
 		if (title.seasons.length === 0) {
 			if (title.totalEpisodes > 0) {
-				this.renderEpisodeGrid(parent, title, title.totalEpisodes, 0);
+				this.renderEpisodeGrid(parent, title, null);
 			}
 			return;
 		}
@@ -1808,7 +2556,9 @@ export class ListTab {
 			badge.textContent = season.name;
 			const palette = this.plugin.settings.seasonPalette;
 			badge.style.backgroundColor = palette[seasonIdx % palette.length] ?? '#888780';
-			seasonHeader.createSpan({ cls: 'wl-season-ep-count', text: `${season.episodes} eps` });
+			const skipCount = (season.skippedEpisodes ?? []).length;
+			const skipSuffix = skipCount > 0 ? ` (${skipCount} to skip)` : '';
+			seasonHeader.createSpan({ cls: 'wl-season-ep-count', text: `${season.episodes} eps${skipSuffix}` });
 			const chevron = seasonHeader.createSpan({
 				cls: `wl-chevron${isCollapsed ? '' : ' is-open'}`,
 				text: '›',
@@ -1816,7 +2566,7 @@ export class ListTab {
 
 			// Render grid immediately only if this season is expanded
 			if (!isCollapsed) {
-				this.renderEpisodeGrid(seasonWrap, title, season.episodes, season.offset);
+				this.renderEpisodeGrid(seasonWrap, title, season);
 			}
 
 			seasonHeader.addEventListener('click', (e) => {
@@ -1826,7 +2576,7 @@ export class ListTab {
 					isCollapsed = false;
 					this.collapsedSeasons.delete(seasonIdx);
 					chevron.classList.add('is-open');
-					this.renderEpisodeGrid(seasonWrap, title, season.episodes, season.offset);
+					this.renderEpisodeGrid(seasonWrap, title, season);
 				} else {
 					// Collapsing: remove grid from DOM entirely
 					isCollapsed = true;
@@ -1844,22 +2594,32 @@ export class ListTab {
 	private renderEpisodeGrid(
 		parent: HTMLElement,
 		title: WatchLogTitle,
-		count: number,
-		offset: number,
+		season: Season | null,
 	): void {
 		const grid = parent.createDiv({ cls: 'wl-episode-grid' });
-		const watched = new Set(title.watchedEpisodes);
+		const count = season ? season.episodes : title.totalEpisodes;
+		const offset = season ? season.offset : 0;
 		const seasonEps = Array.from({ length: count }, (_, i) => offset + i + 1);
-		const allWatched = seasonEps.length > 0 && seasonEps.every((ep) => watched.has(ep));
 
-		// Fill/clear toggle button (first element in the row)
-		const fillBtn = grid.createDiv({
-			cls: `wl-season-fill-btn${allWatched ? ' is-clear' : ' is-fill'}`,
-		});
-		fillBtn.textContent = allWatched ? '✗' : '✓';
-		fillBtn.title = allWatched ? 'Clear all episodes in this season' : 'Mark all episodes in this season as watched';
+		// Fill/clear toggle button (first element in the row). Its visual state is
+		// always recomputed from the live `title.watchedEpisodes`.
+		const fillBtn = grid.createDiv({ cls: 'wl-season-fill-btn' });
+		const refreshFillBtn = (): void => {
+			const watched = new Set(title.watchedEpisodes);
+			const allWatched = seasonEps.length > 0 && seasonEps.every((ep) => watched.has(ep));
+			fillBtn.classList.toggle('is-clear', allWatched);
+			fillBtn.classList.toggle('is-fill', !allWatched);
+			fillBtn.textContent = allWatched ? '✗' : '✓';
+			fillBtn.title = allWatched
+				? 'Clear all episodes in this season'
+				: 'Mark all episodes in this season as watched';
+		};
+		refreshFillBtn();
 		fillBtn.addEventListener('click', (e) => {
 			e.stopPropagation();
+			const watched = new Set(title.watchedEpisodes);
+			const allWatched = seasonEps.length > 0 && seasonEps.every((ep) => watched.has(ep));
+			// Bulk operation: cheap to do via the existing notify-path which triggers a full re-render.
 			void this.dataManager.markSeasonWatched(title.id, seasonEps, !allWatched).then(() => this.rerenderTable());
 		});
 
@@ -1867,18 +2627,77 @@ export class ListTab {
 
 		for (let i = 0; i < count; i++) {
 			const epNum = offset + i + 1;
-			const isWatched = watched.has(epNum);
-			const box = grid.createDiv({
-				cls: `wl-episode-box${isWatched ? ' is-watched' : ''}`,
-			});
-			const displayNum = perSeason ? i + 1 : epNum;
-			box.textContent = isWatched ? '✓' : String(displayNum);
-			box.title = `Episode ${epNum}`;
+			const relNum = i + 1;
+			const displayNum = perSeason ? relNum : epNum;
 
+			const box = grid.createDiv({ cls: 'wl-episode-box' });
+
+			// Read fresh state every time — closures over isWatched/isSkipped would
+			// go stale after the first targeted update.
+			const refreshBox = (): void => {
+				const isWatched = title.watchedEpisodes.includes(epNum);
+				const isSkipped = season ? (season.skippedEpisodes ?? []).includes(relNum) : false;
+				box.classList.toggle('is-watched', isWatched);
+				box.classList.toggle('is-skipped', isSkipped);
+				box.textContent = isSkipped && !isWatched ? '—' : (isWatched ? '✓' : String(displayNum));
+				box.title = `Episode ${epNum}${isSkipped ? ' (skipped)' : ''}`;
+			};
+			refreshBox();
+
+			// Clicking toggles watched/unwatched only. The season's skippedEpisodes
+			// definition is read-only at runtime — it is set exclusively from the
+			// Edit modal's season text (e.g. "Season 1: 48 (33-37)").
 			box.addEventListener('click', (e) => {
 				e.stopPropagation();
-				void this.dataManager.markEpisodeWatched(title.id, epNum, !isWatched).then(() => this.rerenderTable());
+				const isWatched = title.watchedEpisodes.includes(epNum);
+				this.dataManager.applyEpisodeWatchedToggle(title.id, epNum, !isWatched);
+				refreshBox();
+				refreshFillBtn();
+				this.updateAccordionStats(box, title, season);
 			});
+		}
+	}
+
+	/**
+	 * Targeted DOM update for the accordion stats row (left / watched / episodes
+	 * / progress %) and the enclosing season header's skip-count suffix. Avoids
+	 * a full table re-render on every episode click.
+	 */
+	private updateAccordionStats(
+		box: HTMLElement,
+		title: WatchLogTitle,
+		season: Season | null,
+	): void {
+		const accordion = box.closest('.wl-accordion');
+		if (!accordion) return;
+
+		const timeLeft = this.dataManager.calcTimeRemainingForModal(title);
+		const timeWatched = this.dataManager.calcTimeWatched(title);
+		const watchedEps = title.watchedEpisodes.length;
+		const effectiveTotal = this.dataManager.getEffectiveTotal(title);
+		const progress = this.dataManager.getProgress(title);
+
+		const statValues = accordion.querySelectorAll<HTMLElement>('.wl-acc-stat-block .wl-acc-percent');
+		if (statValues[0]) statValues[0].textContent = formatTime(timeLeft);
+		if (statValues[1]) statValues[1].textContent = formatTime(timeWatched);
+		if (statValues[2]) statValues[2].textContent = `${watchedEps} / ${effectiveTotal}`;
+
+		const progressText = accordion.querySelector<HTMLElement>('.wl-acc-header-right .wl-acc-percent');
+		if (progressText) progressText.textContent = `${progress}%`;
+		const progressBar = accordion.querySelector<HTMLElement>('.wl-acc-header-right .wl-progress-bar');
+		if (progressBar) progressBar.style.width = `${progress}%`;
+
+		// Season header's "(N to skip)" suffix only changes on skip-toggle, but
+		// it's cheap to refresh either way.
+		if (season) {
+			const grid = box.closest('.wl-episode-grid');
+			const seasonWrap = grid?.parentElement;
+			const countEl = seasonWrap?.querySelector<HTMLElement>('.wl-season-header .wl-season-ep-count');
+			if (countEl) {
+				const skipCount = (season.skippedEpisodes ?? []).length;
+				const skipSuffix = skipCount > 0 ? ` (${skipCount} to skip)` : '';
+				countEl.textContent = `${season.episodes} eps${skipSuffix}`;
+			}
 		}
 	}
 
@@ -1906,6 +2725,19 @@ export class ListTab {
 			});
 		}
 
+		const rerenderCommunity = (): void => {
+			const next = starsRow.querySelector('.wl-rating-divider');
+			let n: ChildNode | null = next;
+			while (n) {
+				const toRemove = n;
+				n = n.nextSibling;
+				toRemove.parentNode?.removeChild(toRemove);
+			}
+			renderCommunityRating(starsRow, this.plugin, title.id, rerenderCommunity);
+		};
+		renderCommunityRating(starsRow, this.plugin, title.id, rerenderCommunity);
+		maybeAutoRefreshCommunityRating(this.plugin, title.id, rerenderCommunity);
+
 		// Notes
 		const notesRow = footer.createDiv({ cls: 'wl-footer-row' });
 		const notesInput = notesRow.createEl('input', {
@@ -1927,11 +2759,20 @@ export class ListTab {
 		// Date watched
 		const dateRow = footer.createDiv({ cls: 'wl-footer-row' });
 		dateRow.createSpan({ cls: 'wl-footer-label', text: 'Date watched' });
+		const todayBtn = dateRow.createEl('button', {
+			cls: 'wl-btn wl-btn-sm wl-footer-today-btn',
+			text: 'Today',
+			attr: { title: 'Fill with today’s date' },
+		});
 		const dateInput = dateRow.createEl('input', {
 			cls: 'wl-footer-date',
 			attr: { type: 'text', placeholder: 'Dd/mm/yyyy', maxlength: '10' },
 		});
 		dateInput.value = formatDateDisplay(title.dateFinished);
+		const refreshTodayBtnState = (): void => {
+			todayBtn.toggleClass('is-dimmed', !!dateInput.value.trim());
+		};
+		refreshTodayBtnState();
 		dateInput.addEventListener('click', (e) => e.stopPropagation());
 		dateInput.addEventListener('change', () => {
 			void (async () => {
@@ -1948,21 +2789,33 @@ export class ListTab {
 				this.rerenderTable();
 			})();
 		});
+		todayBtn.addEventListener('click', (e) => {
+			e.stopPropagation();
+			if (dateInput.value.trim()) return; // no-op when already filled
+			const now = new Date();
+			const dd = String(now.getDate()).padStart(2, '0');
+			const mm = String(now.getMonth() + 1).padStart(2, '0');
+			const yyyy = now.getFullYear();
+			dateInput.value = `${dd}/${mm}/${yyyy}`;
+			refreshTodayBtnState();
+			dateInput.dispatchEvent(new Event('change'));
+		});
 
-		// Priority
-		const priorityRow = footer.createDiv({ cls: 'wl-footer-row' });
-		priorityRow.createSpan({ cls: 'wl-footer-label', text: 'Priority' });
-		const prioritySelect = priorityRow.createEl('select', { cls: 'wl-select wl-select-sm' });
-		for (const p of this.plugin.settings.priorities) {
-			const opt = prioritySelect.createEl('option', { text: p.name, value: p.name });
-			if (p.name === title.priority) opt.selected = true;
+		// Status
+		const statusRow = footer.createDiv({ cls: 'wl-footer-row' });
+		statusRow.createSpan({ cls: 'wl-footer-label', text: 'Status' });
+		const statusSelect = statusRow.createEl('select', { cls: 'wl-select wl-select-sm' });
+		for (const s of this.plugin.settings.statuses) {
+			if (s.name === 'To be released') continue; // auto-managed; not user-selectable here
+			const opt = statusSelect.createEl('option', { text: s.name, value: s.name });
+			if (s.name === title.status) opt.selected = true;
 		}
-		prioritySelect.addEventListener('click', (e) => e.stopPropagation());
-		prioritySelect.addEventListener('change', () => {
+		statusSelect.addEventListener('click', (e) => e.stopPropagation());
+		statusSelect.addEventListener('change', () => {
 			void (async () => {
 				const t = this.dataManager.getTitle(title.id);
 				if (!t) return;
-				t.priority = prioritySelect.value;
+				t.status = statusSelect.value;
 				await this.dataManager.updateTitle(t);
 				this.rerenderTable();
 			})();
@@ -1971,7 +2824,7 @@ export class ListTab {
 		// Delete (left) + Edit dropdown (right)
 		const actionRow = footer.createDiv({ cls: 'wl-footer-row wl-footer-action-row' });
 
-		const deleteBtn = actionRow.createEl('button', { cls: 'wl-delete-btn', text: 'Remove' });
+		const deleteBtn = actionRow.createEl('button', { cls: 'wl-delete-btn wl-btn-danger', text: 'Remove' });
 		deleteBtn.addEventListener('click', (e) => {
 			e.stopPropagation();
 			new ConfirmModal(this.plugin.app, `Remove "${title.title}" from watchlog?`, () => {
@@ -2063,10 +2916,14 @@ export class ListTab {
 
 		titles = titles.filter((t) => this.titlePassesFilters(t));
 
+		const primaryKey = ListTab.sortBaseAndDirToKey(this.filterSort, this.filterSortDir);
+		const secondKey = this.filterSecondSort === 'none'
+			? 'none'
+			: ListTab.sortBaseAndDirToKey(this.filterSecondSort, this.filterSecondSortDir);
 		titles = [...titles].sort((a, b) => {
-			const primary = this.compareTitlesByKey(this.filterSort, a, b);
-			if (primary !== 0 || this.filterSecondSort === 'none') return primary;
-			return this.compareTitlesByKey(this.filterSecondSort, a, b);
+			const primary = this.compareTitlesByKey(primaryKey, a, b);
+			if (primary !== 0 || secondKey === 'none') return primary;
+			return this.compareTitlesByKey(secondKey, a, b);
 		});
 
 		return titles;

@@ -1,4 +1,4 @@
-import { App, Component, MarkdownRenderer, Modal, Notice, Platform, TFile, normalizePath, Setting } from 'obsidian';
+import { App, Component, MarkdownRenderer, Modal, Notice, TFile, normalizePath, Setting } from 'obsidian';
 import type WatchLogPlugin from './main';
 import type { DataManager } from './DataManager';
 import type { CustomListColumn, CustomListRow, CustomList } from './types';
@@ -9,10 +9,24 @@ import { ConfirmModal } from './ConfirmModal';
 // ─────────────────────────────────────────────────────────────────────────────
 
 export class CustomListManager {
+	/** Names of lists whose ## Data JSON is corrupt — never overwrite these. */
+	corruptLists: Set<string> = new Set();
+
+	/** Per-list save queue: serializes writes to the same list file so table
+	 * and notes saves cannot race and clobber each other. */
+	private saveQueues: Map<string, Promise<void>> = new Map();
+
 	constructor(
 		private readonly app: App,
 		private readonly plugin: WatchLogPlugin,
 	) {}
+
+	private async saveSerialized(listName: string, saveFn: () => Promise<void>): Promise<void> {
+		const prev = this.saveQueues.get(listName) ?? Promise.resolve();
+		const next = prev.then(saveFn).catch(e => console.error('[WL] Save error for list:', listName, e));
+		this.saveQueues.set(listName, next);
+		await next;
+	}
 
 	get folderPath(): string {
 		return this.plugin.settings.customListsFolder || 'WatchLog/CustomLists';
@@ -43,10 +57,13 @@ export class CustomListManager {
 		try {
 			const content = await this.app.vault.read(file);
 			return this.parse(name, content);
-		} catch { return null; }
+		} catch (e) {
+			console.warn('[WL] Failed to read custom list', name, e);
+			return null;
+		}
 	}
 
-	private parse(name: string, content: string): CustomList {
+	private parse(name: string, content: string): CustomList | null {
 		const notesMatch = content.match(/## Notes\n([\s\S]*?)(?=\n## |\s*$)/);
 		const notes = (notesMatch?.[1] ?? '').trim();
 
@@ -68,48 +85,61 @@ export class CustomListManager {
 						typeof r === 'object' && r !== null && 'id' in r,
 					);
 				}
-			} catch { /* invalid JSON */ }
+			} catch (e) {
+				console.warn('[WL] Custom list JSON parse failed for', name, e);
+				new Notice(`Custom list "${name}" has corrupt data and cannot be loaded.`);
+				this.corruptLists.add(name);
+				return null;
+			}
 		}
 
 		return { name, columns, rows, notes };
 	}
 
 	async saveList(list: CustomList): Promise<void> {
-		await this.ensureFolder();
-		const path = normalizePath(`${this.folderPath}/${list.name}.md`);
-		const content = this.serialize(list);
-		const existing = this.app.vault.getAbstractFileByPath(path);
-		try {
-			if (existing instanceof TFile) {
-				await this.app.vault.modify(existing, content);
-			} else {
-				await this.app.vault.create(path, content);
+		await this.saveSerialized(list.name, async () => {
+			if (this.corruptLists.has(list.name)) {
+				console.warn('[WL] Refusing to save corrupt custom list', list.name);
+				return;
 			}
-		} catch (e) {
-			console.error('WatchLog: failed to save custom list', e);
-		}
+			await this.ensureFolder();
+			const path = normalizePath(`${this.folderPath}/${list.name}.md`);
+			const content = this.serialize(list);
+			const existing = this.app.vault.getAbstractFileByPath(path);
+			try {
+				if (existing instanceof TFile) {
+					await this.app.vault.modify(existing, content);
+				} else {
+					await this.app.vault.create(path, content);
+				}
+			} catch (e) {
+				console.error('WatchLog: failed to save custom list', e);
+			}
+		});
 	}
 
 	/** Saves only the ## Notes section without touching ## Data JSON. */
 	async saveNotes(name: string, notes: string): Promise<void> {
-		const path = normalizePath(`${this.folderPath}/${name}.md`);
-		const file = this.app.vault.getAbstractFileByPath(path);
-		if (!(file instanceof TFile)) return;
-		try {
-			const content = await this.app.vault.read(file);
-			const notesMarker = '## Notes\n';
-			const dataMarker = '\n## Data\n';
-			const notesIdx = content.indexOf(notesMarker);
-			if (notesIdx === -1) return;
-			const afterNotes = notesIdx + notesMarker.length;
-			const dataIdx = content.indexOf(dataMarker, afterNotes);
-			const updated = dataIdx !== -1
-				? content.slice(0, afterNotes) + notes + content.slice(dataIdx)
-				: content.slice(0, afterNotes) + notes + '\n';
-			await this.app.vault.modify(file, updated);
-		} catch (e) {
-			console.error('WatchLog: failed to save notes', e);
-		}
+		await this.saveSerialized(name, async () => {
+			const path = normalizePath(`${this.folderPath}/${name}.md`);
+			const file = this.app.vault.getAbstractFileByPath(path);
+			if (!(file instanceof TFile)) return;
+			try {
+				const content = await this.app.vault.read(file);
+				const notesMarker = '## Notes\n';
+				const dataMarker = '\n## Data\n';
+				const notesIdx = content.indexOf(notesMarker);
+				if (notesIdx === -1) return;
+				const afterNotes = notesIdx + notesMarker.length;
+				const dataIdx = content.indexOf(dataMarker, afterNotes);
+				const updated = dataIdx !== -1
+					? content.slice(0, afterNotes) + notes + content.slice(dataIdx)
+					: content.slice(0, afterNotes) + notes + '\n';
+				await this.app.vault.modify(file, updated);
+			} catch (e) {
+				console.error('WatchLog: failed to save notes', e);
+			}
+		});
 	}
 
 	private serialize(list: CustomList): string {
@@ -157,58 +187,64 @@ function renderColumnList(
 	listEl: HTMLElement,
 	cols: CustomListColumn[],
 	existingRows: CustomListRow[],
-	manager: CustomListManager,
 	app: App,
 	onReorder: (from: number, to: number) => void,
 	onDelete: (idx: number) => void,
 	onTypeChange: () => void,
+	onAdd?: () => void,
 ): void {
 	listEl.empty();
+	listEl.addClass('wl-editcol-card-grid');
 	let dragFromIndex = -1;
 
-	if (cols.length === 0) {
-		listEl.createDiv({ cls: 'wl-empty-state', text: 'No custom columns. Click "+ Add column" to add one.' });
-		return;
-	}
+	// Permanent auto-included columns — non-editable, non-deletable, non-draggable.
+	const renderAutoCard = (label: string): void => {
+		const card = listEl.createDiv({ cls: 'wl-editcol-card wl-editcol-card-auto' });
+		card.setAttribute('data-auto', label);
+		const nameWrap = card.createDiv({ cls: 'wl-editcol-card-name-wrap' });
+		nameWrap.createDiv({ cls: 'wl-editcol-card-name-label', text: label });
+		card.createDiv({ cls: 'wl-editcol-card-type-locked', text: 'Auto' });
+		card.createDiv({ cls: 'wl-editcol-card-spacer' });
+	};
+	renderAutoCard('#');
+	renderAutoCard('Name');
 
+	// User columns
 	cols.forEach((col, idx) => {
-		const row = listEl.createDiv({ cls: 'wl-editcols-row' });
+		const card = listEl.createDiv({ cls: 'wl-editcol-card' });
 
-		// ── Header line (handle | name | type | B/I toggles | × delete) ──
-		const header = row.createDiv({ cls: 'wl-editcols-row-header' });
-
-		// Drag handle
-		const handle = header.createDiv({ cls: 'wl-editcols-handle', text: '⠿' });
-		handle.addEventListener('mousedown', () => row.setAttribute('draggable', 'true'));
-
-		row.addEventListener('dragstart', (e) => {
+		// Drag handle (top of card)
+		const handle = card.createDiv({ cls: 'wl-editcol-card-handle', text: '⠿' });
+		handle.title = 'Drag to reorder';
+		handle.addEventListener('mousedown', () => card.setAttribute('draggable', 'true'));
+		card.addEventListener('dragstart', (e) => {
 			dragFromIndex = idx;
 			e.dataTransfer?.setData('text/plain', String(idx));
-			row.addClass('wl-cl-dragging');
+			card.addClass('wl-cl-dragging');
 		});
-		row.addEventListener('dragend', () => {
-			row.removeClass('wl-cl-dragging');
-			row.setAttribute('draggable', 'false');
+		card.addEventListener('dragend', () => {
+			card.removeClass('wl-cl-dragging');
+			card.setAttribute('draggable', 'false');
 		});
-		row.addEventListener('dragover', (e) => { e.preventDefault(); row.addClass('wl-cl-drag-over'); });
-		row.addEventListener('dragleave', () => row.removeClass('wl-cl-drag-over'));
-		row.addEventListener('drop', (e) => {
+		card.addEventListener('dragover', (e) => { e.preventDefault(); card.addClass('wl-cl-drag-over'); });
+		card.addEventListener('dragleave', () => card.removeClass('wl-cl-drag-over'));
+		card.addEventListener('drop', (e) => {
 			e.preventDefault();
-			row.removeClass('wl-cl-drag-over');
+			card.removeClass('wl-cl-drag-over');
 			const from = dragFromIndex;
 			const to = idx;
 			if (from !== to && from >= 0) onReorder(from, to);
 		});
 
 		// Name input
-		const nameInput = header.createEl('input', {
-			cls: 'wl-modal-input wl-editcols-name',
+		const nameInput = card.createEl('input', {
+			cls: 'wl-modal-input wl-editcol-card-name',
 			attr: { type: 'text', placeholder: 'Column name', value: col.label },
 		});
 		nameInput.addEventListener('input', () => { col.label = nameInput.value; });
 
 		// Type select
-		const typeSelect = header.createEl('select', { cls: 'wl-select wl-editcols-type' });
+		const typeSelect = card.createEl('select', { cls: 'wl-select wl-editcol-card-type' });
 		for (const t of ['text', 'number', 'select'] as const) {
 			const opt = typeSelect.createEl('option', {
 				value: t,
@@ -221,11 +257,11 @@ function renderColumnList(
 			onTypeChange();
 		});
 
-		// Bold/Italic toggles (text/number only) — stay in header
+		// Bold/Italic toggles (text/number only)
 		if (col.type === 'text' || col.type === 'number') {
-			const toggles = header.createDiv({ cls: 'wl-editcols-toggles' });
+			const toggles = card.createDiv({ cls: 'wl-editcol-card-toggles' });
 			const boldBtn = toggles.createEl('button', {
-				cls: `wl-btn wl-btn-sm wl-editcols-toggle wl-editcols-bold-btn${col.bold ? ' is-active' : ''}`,
+				cls: `wl-btn wl-btn-sm wl-editcol-card-toggle wl-editcols-bold-btn${col.bold ? ' is-active' : ''}`,
 				text: 'B',
 			});
 			boldBtn.addEventListener('click', () => {
@@ -233,18 +269,30 @@ function renderColumnList(
 				boldBtn.toggleClass('is-active', !!col.bold);
 			});
 			const italicBtn = toggles.createEl('button', {
-				cls: `wl-btn wl-btn-sm wl-editcols-toggle wl-editcols-italic-btn${col.italic ? ' is-active' : ''}`,
+				cls: `wl-btn wl-btn-sm wl-editcol-card-toggle wl-editcols-italic-btn${col.italic ? ' is-active' : ''}`,
 				text: 'I',
 			});
 			italicBtn.addEventListener('click', () => {
 				col.italic = !col.italic;
 				italicBtn.toggleClass('is-active', !!col.italic);
 			});
+
+			if (col.type === 'number') {
+				const autoTimeBtn = toggles.createEl('button', {
+					cls: `wl-btn wl-btn-sm wl-editcol-card-toggle wl-editcols-autotime-btn${col.autoTime ? ' is-active' : ''}`,
+					text: '⏱',
+					attr: { title: 'Auto-populate with remaining watch time from Watchlist' },
+				});
+				autoTimeBtn.addEventListener('click', () => {
+					col.autoTime = !col.autoTime;
+					autoTimeBtn.toggleClass('is-active', !!col.autoTime);
+				});
+			}
 		}
 
-		// Delete column button — always at far right of header, clearly separated
-		const delBtn = header.createEl('button', {
-			cls: 'wl-btn wl-btn-sm wl-editcols-del',
+		// Delete card button
+		const delBtn = card.createEl('button', {
+			cls: 'wl-btn wl-btn-sm wl-editcol-card-del',
 			text: '×',
 		});
 		delBtn.title = 'Delete this column';
@@ -262,29 +310,32 @@ function renderColumnList(
 			}
 		});
 
-		// ── Options area (select type only) — below the header line ──
+		// Options block (select type only)
 		if (col.type === 'select') {
-			const optsArea = row.createDiv({ cls: 'wl-editcols-opts-area' });
+			const optsArea = card.createDiv({ cls: 'wl-editcol-card-opts' });
 			const renderOpts = (): void => {
 				optsArea.empty();
 				(col.options ?? []).forEach((opt, oi) => {
-					const optRow = optsArea.createDiv({ cls: 'wl-editcols-opt-row' });
+					const optRow = optsArea.createDiv({ cls: 'wl-editcol-card-opt-row' });
 					const optInput = optRow.createEl('input', {
-						cls: 'wl-modal-input',
-						attr: { type: 'text', value: opt, placeholder: 'Option label' },
+						cls: 'wl-modal-input wl-editcol-card-opt-input',
+						attr: { type: 'text', value: opt, placeholder: 'Option' },
 					});
 					optInput.addEventListener('input', () => {
 						if (!col.options) col.options = [];
 						col.options[oi] = optInput.value;
 					});
 					const delOpt = optRow.createEl('button', {
-						cls: 'wl-btn wl-btn-sm wl-editcols-opt-del',
+						cls: 'wl-btn wl-btn-sm wl-editcol-card-opt-del',
 						text: '×',
 						attr: { title: 'Remove this option' },
 					});
 					delOpt.addEventListener('click', () => { col.options?.splice(oi, 1); renderOpts(); });
 				});
-				const addOpt = optsArea.createEl('button', { cls: 'wl-btn wl-btn-sm', text: '+ add option' });
+				const addOpt = optsArea.createEl('button', {
+					cls: 'wl-btn wl-btn-sm wl-editcol-card-opt-add',
+					text: '+ option',
+				});
 				addOpt.addEventListener('click', () => {
 					if (!col.options) col.options = [];
 					col.options.push('');
@@ -294,6 +345,13 @@ function renderColumnList(
 			renderOpts();
 		}
 	});
+
+	// Add-column card (last in row)
+	if (onAdd) {
+		const addCard = listEl.createDiv({ cls: 'wl-editcol-card wl-editcol-card-add' });
+		addCard.createDiv({ cls: 'wl-editcol-card-add-label', text: '+ add column' });
+		addCard.addEventListener('click', () => onAdd());
+	}
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -323,6 +381,7 @@ export class EditColumnsModal extends Modal {
 	}
 
 	onOpen(): void {
+		this.modalEl.addClass('wl-editcol-modal');
 		this.titleEl.setText(`Edit Columns — ${this.list.name}`);
 		this.contentEl.addClass('wl-editcols-modal');
 		this.renderBody();
@@ -334,21 +393,6 @@ export class EditColumnsModal extends Modal {
 
 		this.listEl = this.contentEl.createDiv({ cls: 'wl-editcols-list' });
 		this.renderCols();
-
-		const addBtn = this.contentEl.createEl('button', {
-			cls: 'wl-btn wl-editcols-add-btn',
-			text: '+ add column',
-		});
-		addBtn.addEventListener('click', () => {
-			this.cols.push({
-				id: this.manager.generateColId([...this.list.columns.filter(c => !c.locked), ...this.cols]),
-				label: '',
-				type: 'text',
-				bold: false,
-				italic: false,
-			});
-			this.renderBody();
-		});
 
 		const footer = this.contentEl.createDiv({ cls: 'wl-modal-btn-row wl-editcols-footer' });
 		const cancelBtn = footer.createEl('button', { cls: 'wl-btn', text: 'Cancel' });
@@ -362,7 +406,6 @@ export class EditColumnsModal extends Modal {
 			this.listEl,
 			this.cols,
 			this.list.rows,
-			this.manager,
 			this.app,
 			(from, to) => {
 				const [moved] = this.cols.splice(from, 1);
@@ -371,6 +414,16 @@ export class EditColumnsModal extends Modal {
 			},
 			(idx) => { this.cols.splice(idx, 1); this.renderBody(); },
 			() => this.renderBody(),
+			() => {
+				this.cols.push({
+					id: this.manager.generateColId([...this.list.columns.filter(c => !c.locked), ...this.cols]),
+					label: '',
+					type: 'text',
+					bold: false,
+					italic: false,
+				});
+				this.renderBody();
+			},
 		);
 	}
 
@@ -409,6 +462,7 @@ export class DefaultColumnsModal extends Modal {
 	}
 
 	onOpen(): void {
+		this.modalEl.addClass('wl-editcol-modal');
 		this.titleEl.setText('Default columns');
 		this.contentEl.addClass('wl-editcols-modal');
 		this.renderBody();
@@ -426,21 +480,6 @@ export class DefaultColumnsModal extends Modal {
 		this.listEl = this.contentEl.createDiv({ cls: 'wl-editcols-list' });
 		this.renderCols();
 
-		const addBtn = this.contentEl.createEl('button', {
-			cls: 'wl-btn wl-editcols-add-btn',
-			text: '+ add column',
-		});
-		addBtn.addEventListener('click', () => {
-			this.cols.push({
-				id: this.manager.generateColId(this.cols),
-				label: '',
-				type: 'text',
-				bold: false,
-				italic: false,
-			});
-			this.renderBody();
-		});
-
 		const footer = this.contentEl.createDiv({ cls: 'wl-modal-btn-row wl-editcols-footer' });
 		const cancelBtn = footer.createEl('button', { cls: 'wl-btn', text: 'Cancel' });
 		cancelBtn.addEventListener('click', () => this.close());
@@ -453,7 +492,6 @@ export class DefaultColumnsModal extends Modal {
 			this.listEl,
 			this.cols,
 			[],
-			this.manager,
 			this.app,
 			(from, to) => {
 				const [moved] = this.cols.splice(from, 1);
@@ -462,6 +500,16 @@ export class DefaultColumnsModal extends Modal {
 			},
 			(idx) => { this.cols.splice(idx, 1); this.renderBody(); },
 			() => this.renderBody(),
+			() => {
+				this.cols.push({
+					id: this.manager.generateColId(this.cols),
+					label: '',
+					type: 'text',
+					bold: false,
+					italic: false,
+				});
+				this.renderBody();
+			},
 		);
 	}
 
@@ -485,7 +533,7 @@ export class DefaultColumnsModal extends Modal {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// NotesModal — Bug 2: replaces "open raw .md" with a simple textarea modal
+// NotesModal — edits a list's notes in a simple textarea modal
 // ─────────────────────────────────────────────────────────────────────────────
 
 class NotesModal extends Modal {
@@ -582,7 +630,7 @@ function wrapSelection(ta: HTMLTextAreaElement, before: string, after: string): 
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ListNameModal — replaces window.prompt() (blocked in Electron)
+// ListNameModal — text-input modal (window.prompt() is blocked in Electron)
 // ─────────────────────────────────────────────────────────────────────────────
 
 class ListNameModal extends Modal {
@@ -632,78 +680,6 @@ class ListNameModal extends Modal {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MobileCellEditModal — replaces inline input editing on iOS to avoid keyboard overlay
-// ─────────────────────────────────────────────────────────────────────────────
-
-class MobileCellEditModal extends Modal {
-	private inputType: 'text' | 'number';
-	private initialValue: string;
-	private label: string;
-	private getSuggestions: (() => { title: string; type: string; status: string }[]) | undefined;
-	private onSave: (value: string) => void | Promise<void>;
-
-	constructor(
-		app: App,
-		label: string,
-		inputType: 'text' | 'number',
-		initialValue: string,
-		onSave: (value: string) => void | Promise<void>,
-		getSuggestions?: () => { title: string; type: string; status: string }[],
-	) {
-		super(app);
-		this.label = label;
-		this.inputType = inputType;
-		this.initialValue = initialValue;
-		this.onSave = onSave;
-		this.getSuggestions = getSuggestions;
-	}
-
-	onOpen(): void {
-		this.titleEl.setText(this.label);
-		const { contentEl } = this;
-
-		const input = contentEl.createEl('input', {
-			cls: 'wl-cl-cell-input wl-mobile-edit-input',
-			attr: { type: this.inputType, value: this.initialValue },
-		});
-
-		if (this.getSuggestions) {
-			const suggestionsEl = contentEl.createDiv({ cls: 'wl-cl-autofill-dropdown wl-mobile-suggestions' });
-			input.addEventListener('input', () => {
-				suggestionsEl.empty();
-				const q = input.value.toLowerCase();
-				if (!q) return;
-				const matches = this.getSuggestions!()
-					.filter(t => t.title.toLowerCase().includes(q))
-					.slice(0, 10);
-				for (const s of matches) {
-					const item = suggestionsEl.createDiv({ cls: 'wl-result-item' });
-					item.createDiv({ cls: 'wl-result-title', text: s.title });
-					item.createDiv({ cls: 'wl-result-meta', text: `${s.type} · ${s.status}` });
-					item.addEventListener('mousedown', (e) => {
-						e.preventDefault();
-						input.value = s.title;
-						suggestionsEl.empty();
-					});
-				}
-			});
-		}
-
-		const btnRow = contentEl.createDiv({ cls: 'wl-modal-btn-row' });
-		btnRow.createEl('button', { cls: 'wl-btn mod-cta', text: 'Save' })
-			.addEventListener('click', () => { void this.onSave(input.value); this.close(); });
-
-		input.addEventListener('keydown', (e) => {
-			if (e.key === 'Enter') { e.preventDefault(); void this.onSave(input.value); this.close(); }
-		});
-
-		window.setTimeout(() => { input.focus(); input.select(); }, 50);
-	}
-
-	onClose(): void { this.contentEl.empty(); }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // CustomListsTab
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -721,6 +697,15 @@ export class CustomListsTab {
 	searchQuery = '';
 	private duplicatedRowIds: Set<string> = new Set();
 	private _escapeKeyHandler: ((e: KeyboardEvent) => void) | null = null;
+
+	// Cleanup functions for inline-editor document/visualViewport listeners
+	private activeCleanups: Array<() => void> = [];
+
+	// Generation counter to guard against stale renders / race conditions
+	private renderGeneration = 0;
+
+	// Per-list save queue to prevent overlapping table + notes writes
+	private saveQueues: Map<string, Promise<void>> = new Map();
 
 	// Kept for keyboard navigation (set at buildTable time)
 	private _countEl: HTMLElement | null = null;
@@ -741,7 +726,33 @@ export class CustomListsTab {
 		return [...ordered, ...unordered];
 	}
 
+	/** Tear down active inline-editor listeners (called on rerender / view close). */
+	destroy(): void {
+		for (const fn of this.activeCleanups) {
+			try { fn(); } catch { /* ignore */ }
+		}
+		this.activeCleanups = [];
+		if (this._escapeKeyHandler) {
+			try { activeDocument.removeEventListener('keydown', this._escapeKeyHandler); } catch { /* ignore */ }
+			this._escapeKeyHandler = null;
+		}
+	}
+
+	addCleanup(fn: () => void): void {
+		this.activeCleanups.push(fn);
+	}
+
+	/** Serializes saves per-list so notes + table writes don't overlap. */
+	saveSerialized(listName: string, saveFn: () => Promise<void>): Promise<void> {
+		const prev = this.saveQueues.get(listName) ?? Promise.resolve();
+		const next = prev.then(saveFn).catch((e) => console.error('[WL] custom-list save failed:', e));
+		this.saveQueues.set(listName, next);
+		return next;
+	}
+
 	async render(): Promise<void> {
+		const gen = ++this.renderGeneration;
+		this.destroy();
 		this.container.empty();
 		this.container.addClass('wl-custom-lists');
 
@@ -761,6 +772,7 @@ export class CustomListsTab {
 			this.currentList = await this.manager.loadList(this.activeListName);
 		}
 
+		if (gen !== this.renderGeneration) return; // stale render
 		this.container.empty();
 		this.buildSubTabs();
 
@@ -828,7 +840,7 @@ export class CustomListsTab {
 			});
 		}
 
-		const addBtn = tabBar.createEl('button', { cls: 'wl-cl-sub-tab-add', text: '+' });
+		const addBtn = tabBar.createEl('button', { cls: 'wl-cl-sub-tab-add wl-btn-success', text: '+' });
 		addBtn.addEventListener('click', () => this.promptCreateList());
 	}
 
@@ -906,7 +918,7 @@ export class CustomListsTab {
 		const countEl = header.createSpan({ cls: 'wl-results-count wl-cl-count' });
 		const toolbar = header.createDiv({ cls: 'wl-cl-toolbar' });
 
-		// Notes — Bug 2: opens NotesModal instead of raw file
+		// Notes — opens NotesModal
 		const notesBtn = toolbar.createEl('button', { cls: 'wl-btn wl-btn-sm', text: 'Notes' });
 		notesBtn.addEventListener('click', () => {
 			new NotesModal(
@@ -945,12 +957,17 @@ export class CustomListsTab {
 						const colIds = new Set(cols.map(c => c.id));
 						for (const row of list.rows) {
 							for (const key of Object.keys(row)) {
-								if (key !== 'id' && key !== 'name' && !colIds.has(key)) {
+								if (key !== 'id' && key !== 'name' && key !== 'checked' && !colIds.has(key)) {
 									delete (row as Record<string, unknown>)[key];
 								}
 							}
 						}
 						list.columns = cols;
+						for (const col of cols) {
+							if (col.type === 'number' && col.autoTime) {
+								this.autoPopulateTimeColumn(list, col);
+							}
+						}
 						await this.manager.saveList(list);
 						await this.render();
 					},
@@ -963,19 +980,25 @@ export class CustomListsTab {
 			cls: 'wl-search-input',
 			attr: { type: 'text', placeholder: 'Search...', value: this.searchQuery },
 		});
+		let searchDebounce: number | null = null;
 		searchInput.addEventListener('input', () => {
 			this.searchQuery = searchInput.value;
-			if (this._tableContainer && this._countEl) {
-				this._tableContainer.empty();
-				this.buildTable(this._tableContainer, list, this._countEl);
-			}
+			if (searchDebounce !== null) window.clearTimeout(searchDebounce);
+			searchDebounce = window.setTimeout(() => {
+				searchDebounce = null;
+				if (this._tableContainer && this._countEl) {
+					this._tableContainer.empty();
+					this.buildTable(this._tableContainer, list, this._countEl);
+				}
+			}, 250);
 		});
 
-		// Draft warning
-		view.createDiv({
-			cls: 'wl-cl-draft-banner',
-			text: '⚠ This is a draft list. Titles here are not included in any stats or counts.',
-		});
+		if (this.plugin.settings.showHintBanners) {
+			view.createDiv({
+				cls: 'wl-cl-draft-banner',
+				text: '⚠ This is a draft list. Titles here are not included in any stats or counts.',
+			});
+		}
 
 		// Table
 		const tableWrap = view.createDiv({ cls: 'wl-cl-table-wrap' });
@@ -1074,7 +1097,22 @@ export class CustomListsTab {
 		hRow.createDiv({ cls: 'wl-cl-th wl-cl-th-tick' }); // tick column header
 		hRow.createDiv({ cls: 'wl-cl-th wl-cl-th-num', text: '#' });
 		hRow.createDiv({ cls: 'wl-cl-th', text: 'Name' });
-		for (const col of nonLockedCols) hRow.createDiv({ cls: 'wl-cl-th', text: col.label });
+		for (const col of nonLockedCols) {
+			const th = hRow.createDiv({ cls: 'wl-cl-th' });
+			th.createSpan({ text: col.label });
+			if (col.type === 'number' && col.autoTime) {
+				const refreshBtn = th.createSpan({ cls: 'wl-cl-autotime-refresh', text: '↻' });
+				refreshBtn.title = 'Refresh remaining time values';
+				refreshBtn.addEventListener('click', (e) => {
+					e.stopPropagation();
+					this.autoPopulateTimeColumn(list, col);
+					void this.manager.saveList(list).then(() => {
+						container.empty();
+						this.buildTable(container, list, countEl);
+					});
+				});
+			}
+		}
 		hRow.createDiv({ cls: 'wl-cl-th wl-cl-th-actions' });
 
 		// Body
@@ -1086,7 +1124,7 @@ export class CustomListsTab {
 			const tr = tbody.createDiv({ cls: `wl-cl-tr wl-cl-tr-body${isChecked ? ' wl-cl-tr-checked' : ''}` });
 			tr.dataset.rowId = row.id;
 
-			// Tick button (Feature 5)
+			// Tick button
 			const tickCell = tr.createDiv({ cls: 'wl-cl-td wl-cl-td-tick' });
 			const tickBtn = tickCell.createDiv({ cls: `wl-cl-tick-btn${isChecked ? ' is-checked' : ''}` });
 			tickBtn.title = isChecked ? 'Uncheck row' : 'Check row';
@@ -1161,7 +1199,7 @@ export class CustomListsTab {
 
 		// Add row
 		const addRowEl = container.createDiv({ cls: 'wl-cl-add-row' });
-		addRowEl.createEl('button', { cls: 'wl-btn wl-btn-sm', text: '+ add row' })
+		addRowEl.createEl('button', { cls: 'wl-btn wl-btn-sm wl-btn-success', text: '+ add row' })
 			.addEventListener('click', () => {
 				const newRow: CustomListRow = { id: this.manager.generateRowId(list.rows), name: '' };
 				list.rows.push(newRow);
@@ -1214,25 +1252,6 @@ export class CustomListsTab {
 	): void {
 		const prevVal = String((row as Record<string, string | undefined>)['name'] ?? '');
 
-		if (Platform.isMobile) {
-			new MobileCellEditModal(
-				this.plugin.app,
-				'Edit Name',
-				'text',
-				prevVal,
-				async (value) => {
-					const newVal = value.trim();
-					const isDup = this.duplicatedRowIds.has(row.id);
-					(row as Record<string, unknown>)['name'] = newVal;
-					if (isDup && newVal !== prevVal) this.duplicatedRowIds.delete(row.id);
-					await this.manager.saveList(list);
-					this.renderNameCell(cell, row, list, countEl, nonLockedCols, tableContainer);
-				},
-				() => this.dataManager.getTitles(),
-			).open();
-			return;
-		}
-
 		cell.empty();
 		cell.addClass('wl-cl-editing');
 		this._escapeKeyHandler = (e: KeyboardEvent) => {
@@ -1244,6 +1263,11 @@ export class CustomListsTab {
 		};
 		activeDocument.addEventListener('keydown', this._escapeKeyHandler, true);
 		activeDocument.addEventListener('keyup', this._escapeKeyHandler, true);
+		const escHandler = this._escapeKeyHandler;
+		this.addCleanup(() => {
+			activeDocument.removeEventListener('keydown', escHandler, true);
+			activeDocument.removeEventListener('keyup', escHandler, true);
+		});
 
 		// Mobile viewport: scroll active element into view when virtual keyboard shrinks viewport
 		const vpResizeHandler = (): void => {
@@ -1251,6 +1275,9 @@ export class CustomListsTab {
 			if (active) active.scrollIntoView({ behavior: 'smooth', block: 'center' });
 		};
 		if (window.visualViewport) window.visualViewport.addEventListener('resize', vpResizeHandler);
+		this.addCleanup(() => {
+			if (window.visualViewport) window.visualViewport.removeEventListener('resize', vpResizeHandler);
+		});
 		window.setTimeout(() => cell.scrollIntoView({ block: 'nearest', behavior: 'smooth' }), 50);
 
 		const wrap = cell.createDiv({ cls: 'wl-cl-autofill-wrap' });
@@ -1270,8 +1297,14 @@ export class CustomListsTab {
 			clearDropdown();
 			const q = input.value.toLowerCase();
 			if (!q) return;
-			const suggestions = this.dataManager.getTitles()
-				.filter(t => t.title.toLowerCase().includes(q))
+			// Suggestions come from both the Watchlist and the Reading list (Books + Manga).
+			const reading = this.plugin.readingDataManager;
+			const suggestions: { title: string; meta: string }[] = [
+				...this.dataManager.getTitles().map(t => ({ title: t.title, meta: `${t.type} · ${t.status}` })),
+				...reading.getBooks().map(b => ({ title: b.title, meta: `Book · ${b.status}` })),
+				...reading.getMangaList().map(m => ({ title: m.title, meta: `Manga · ${m.status}` })),
+			]
+				.filter(s => s.title.toLowerCase().includes(q))
 				.slice(0, 10);
 			if (!suggestions.length) return;
 			const rect = input.getBoundingClientRect();
@@ -1279,11 +1312,11 @@ export class CustomListsTab {
 			dropdown.style.top = `${rect.bottom}px`;
 			dropdown.style.left = `${rect.left}px`;
 			dropdown.style.width = `${rect.width}px`;
-			for (const title of suggestions) {
+			for (const sug of suggestions) {
 				const item = dropdown.createDiv({ cls: 'wl-result-item' });
-				item.createDiv({ cls: 'wl-result-title', text: title.title });
-				item.createDiv({ cls: 'wl-result-meta', text: `${title.type} · ${title.status}` });
-				item.addEventListener('mousedown', (e) => { e.preventDefault(); input.value = title.title; clearDropdown(); });
+				item.createDiv({ cls: 'wl-result-title', text: sug.title });
+				item.createDiv({ cls: 'wl-result-meta', text: sug.meta });
+				item.addEventListener('mousedown', (e) => { e.preventDefault(); input.value = sug.title; clearDropdown(); });
 			}
 		});
 
@@ -1313,7 +1346,7 @@ export class CustomListsTab {
 
 		input.addEventListener('blur', () => void doSave(false));
 		input.addEventListener('keydown', (e) => {
-			// QoL 2: keyboard navigation in suggestion dropdown
+			// Keyboard navigation in suggestion dropdown
 			if (dropdown) {
 				const items = Array.from(dropdown.querySelectorAll<HTMLElement>('.wl-result-item'));
 				if (e.key === 'ArrowDown') {
@@ -1393,29 +1426,6 @@ export class CustomListsTab {
 	): void {
 		const currentVal = (row as Record<string, string | number | undefined>)[col.id];
 
-		if (Platform.isMobile && col.type !== 'select') {
-			const initialStr = currentVal !== undefined && currentVal !== null ? String(currentVal) : '';
-			new MobileCellEditModal(
-				this.plugin.app,
-				`Edit ${col.label}`,
-				col.type === 'number' ? 'number' : 'text',
-				initialStr,
-				async (value) => {
-					let newVal: string | number | undefined;
-					if (col.type === 'number') {
-						const n = parseFloat(value);
-						newVal = isNaN(n) ? undefined : n;
-					} else {
-						newVal = value === '' ? undefined : value;
-					}
-					(row as Record<string, unknown>)[col.id] = newVal;
-					await this.manager.saveList(list);
-					this.renderCustomCell(cell, row, col, list);
-				},
-			).open();
-			return;
-		}
-
 		cell.empty();
 		cell.addClass('wl-cl-editing');
 
@@ -1425,6 +1435,9 @@ export class CustomListsTab {
 			if (active) active.scrollIntoView({ behavior: 'smooth', block: 'center' });
 		};
 		if (window.visualViewport) window.visualViewport.addEventListener('resize', vpResizeHandler);
+		this.addCleanup(() => {
+			if (window.visualViewport) window.visualViewport.removeEventListener('resize', vpResizeHandler);
+		});
 		window.setTimeout(() => cell.scrollIntoView({ block: 'nearest', behavior: 'smooth' }), 50);
 
 		let getValue: () => string | number | undefined;
@@ -1499,7 +1512,24 @@ export class CustomListsTab {
 		}
 	}
 
-	// ── Keyboard navigation (QoL 1) ────────────────────────────────────────────
+	// ── Auto-populate time column ──────────────────────────────────────────────
+
+	private autoPopulateTimeColumn(list: CustomList, col: CustomListColumn): void {
+		const titles = this.dataManager.getTitles();
+		for (const row of list.rows) {
+			const rowName = String(row['name'] ?? '').trim();
+			if (!rowName) continue;
+			const match = titles.find(t => t.title === rowName);
+			if (!match) {
+				row[col.id] = 'Not found';
+				continue;
+			}
+			const remainingMinutes = this.dataManager.calcTimeRemainingForModal(match);
+			row[col.id] = remainingMinutes;
+		}
+	}
+
+	// ── Keyboard navigation ─────────────────────────────────────────────────────
 
 	/** Returns editable cells (Name + custom) in a row, skipping # and actions. */
 	private getEditableCells(tr: Element): Element[] {

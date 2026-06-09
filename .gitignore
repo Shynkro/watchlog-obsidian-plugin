@@ -13,6 +13,8 @@ node_modules
 
 # obsidian
 data.json
+history.json
+reading.json
 
 # Exclude macOS Finder (System Explorer) View States
 .DS_Store
@@ -24,6 +26,7 @@ data.json
 .claude/
 CLAUDE.md
 AGENTS.md
+DEVLOG.md
 
 # Runtime data
 history.json

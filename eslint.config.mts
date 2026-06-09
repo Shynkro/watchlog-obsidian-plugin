@@ -24,6 +24,13 @@ export default tseslint.config(
 		},
 	},
 	...obsidianmd.configs.recommended,
+	{
+		// Cosmetic-only: keep UI sentence-case visible without failing the lint.
+		plugins: { obsidianmd },
+		rules: {
+			'obsidianmd/ui/sentence-case': 'warn',
+		},
+	},
 	globalIgnores([
 		"node_modules",
 		"dist",

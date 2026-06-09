@@ -15,6 +15,8 @@ export class WidgetRenderer {
 	private widgetRegistry = new Map<HTMLElement, string>();
 	/** Tracks which registered widgets are in mini mode (for correct re-render on data change). */
 	private widgetMiniRegistry = new Map<HTMLElement, boolean>();
+	/** Generic re-render hooks for non-todo widgets (stats, upcoming, now-watching, now-next). */
+	private widgetRerender = new Map<HTMLElement, () => void>();
 	private dataChangedListener: EventListener;
 
 	constructor(plugin: WatchLogPlugin, dataManager: DataManager) {
@@ -51,7 +53,7 @@ export class WidgetRenderer {
 			(source, el, _ctx) => this.processWlNowNext(source, el),
 		);
 
-		// Re-render all active widgets when data changes (Fix 1: list → widget sync)
+		// Re-render all active widgets when data changes (list → widget sync)
 		this.dataChangedListener = () => this.onDataChanged();
 		activeDocument.addEventListener('watchlog-data-changed', this.dataChangedListener);
 
@@ -87,6 +89,23 @@ export class WidgetRenderer {
 			this.widgetRegistry.delete(el);
 			this.widgetMiniRegistry.delete(el);
 		}
+
+		const staleGeneric: HTMLElement[] = [];
+		for (const [el, rerender] of this.widgetRerender) {
+			if (!el.isConnected) {
+				staleGeneric.push(el);
+				continue;
+			}
+			try { rerender(); } catch (e) { console.warn('[WL] widget rerender failed:', e); }
+		}
+		for (const el of staleGeneric) this.widgetRerender.delete(el);
+	}
+
+	/** Clear all widget registries (plugin unload). */
+	cleanup(): void {
+		this.widgetRegistry.clear();
+		this.widgetMiniRegistry.clear();
+		this.widgetRerender.clear();
 	}
 
 	private process(
@@ -369,7 +388,13 @@ export class WidgetRenderer {
 	// ── wl-stat ───────────────────────────────────────────────────────────────────
 
 	private processWlStat(source: string, el: HTMLElement): void {
+		this.widgetRerender.set(el, () => this.renderWlStat(source, el));
+		this.renderWlStat(source, el);
+	}
+
+	private renderWlStat(source: string, el: HTMLElement): void {
 		const kind = source.trim().toLowerCase();
+		el.empty();
 		el.addClass('wl-wstat');
 
 		if (kind === 'watched') {
@@ -478,6 +503,12 @@ export class WidgetRenderer {
 	// ── wl-upcoming ───────────────────────────────────────────────────────────────
 
 	private processWlUpcoming(source: string, el: HTMLElement): void {
+		this.widgetRerender.set(el, () => this.renderWlUpcoming(source, el));
+		this.renderWlUpcoming(source, el);
+	}
+
+	private renderWlUpcoming(source: string, el: HTMLElement): void {
+		el.empty();
 		const kind = source.trim().toLowerCase();
 		const isFull = kind === 'next full';
 		if (kind !== 'next' && kind !== 'next full') {
@@ -487,6 +518,7 @@ export class WidgetRenderer {
 
 		const entries = this.dataManager.getAirtimeEntries();
 		const titles = this.dataManager.getTitles();
+		const titleMap = new Map(titles.map((t) => [t.id, t]));
 
 		// Find the entry with the soonest future release date
 		const now = Date.now();
@@ -494,7 +526,7 @@ export class WidgetRenderer {
 		let bestMs = Infinity;
 
 		for (const entry of entries) {
-			const title = titles.find((t) => t.id === entry.titleId);
+			const title = titleMap.get(entry.titleId);
 			if (!title || entry.schedule.recurrence !== 'once' || !entry.schedule.releaseDate) continue;
 			const ms = new Date(entry.schedule.releaseDate + 'T12:00:00').getTime();
 			if (ms >= now && ms < bestMs) {
@@ -568,6 +600,12 @@ export class WidgetRenderer {
 	// ── wl-nowwatching ────────────────────────────────────────────────────────────
 
 	private processWlNowWatching(source: string, el: HTMLElement): void {
+		this.widgetRerender.set(el, () => this.renderWlNowWatching(source, el));
+		this.renderWlNowWatching(source, el);
+	}
+
+	private renderWlNowWatching(source: string, el: HTMLElement): void {
+		el.empty();
 		const isFull = source.trim().toLowerCase() === 'full';
 		el.addClass('wl-wnowwatching');
 
@@ -592,12 +630,13 @@ export class WidgetRenderer {
 		if (pinnedGroup) {
 			card.createSpan({ cls: 'wl-nowwatching-title', text: pinnedGroup.name });
 			const allTitles = this.dataManager.getTitles();
+			const titleMap = new Map(allTitles.map((t) => [t.id, t]));
 			const members = pinnedGroup.titleIds
-				.map((id) => allTitles.find((t) => t.id === id))
+				.map((id) => titleMap.get(id))
 				.filter((t): t is WatchLogTitle => t !== undefined);
 			const totalWatched = members.reduce((s, t) => s + t.watchedEpisodes.length, 0);
-			const totalEps = members.reduce((s, t) => s + t.totalEpisodes, 0);
-			const progress = totalEps > 0 ? Math.round((totalWatched / totalEps) * 100) : 0;
+			const totalEps = members.reduce((s, t) => s + this.dataManager.getEffectiveTotal(t), 0);
+			const progress = totalEps > 0 ? Math.min(100, Math.round((totalWatched / totalEps) * 100)) : 0;
 			card.createSpan({ cls: 'wl-nowwatching-ep', text: `${members.length} title${members.length !== 1 ? 's' : ''}` });
 			const barWrap = card.createDiv({ cls: 'wl-nowwatching-bar-wrap' });
 			barWrap.createDiv({ cls: 'wl-nowwatching-bar' }).style.width = `${progress}%`;
@@ -645,12 +684,13 @@ export class WidgetRenderer {
 		if (pinnedGroup) {
 			card.createDiv({ cls: 'wl-full-card-title', text: pinnedGroup.name });
 			const allTitles = this.dataManager.getTitles();
+			const titleMap = new Map(allTitles.map((t) => [t.id, t]));
 			const members = pinnedGroup.titleIds
-				.map((id) => allTitles.find((t) => t.id === id))
+				.map((id) => titleMap.get(id))
 				.filter((t): t is WatchLogTitle => t !== undefined);
 			const totalWatched = members.reduce((s, t) => s + t.watchedEpisodes.length, 0);
-			const totalEps = members.reduce((s, t) => s + t.totalEpisodes, 0);
-			const progress = totalEps > 0 ? Math.round((totalWatched / totalEps) * 100) : 0;
+			const totalEps = members.reduce((s, t) => s + this.dataManager.getEffectiveTotal(t), 0);
+			const progress = totalEps > 0 ? Math.min(100, Math.round((totalWatched / totalEps) * 100)) : 0;
 			const bottomRow = card.createDiv({ cls: 'wl-nw-bottom-row' });
 			bottomRow.createSpan({ cls: 'wl-full-card-sub', text: `${members.length} title${members.length !== 1 ? 's' : ''}` });
 			const barCol = bottomRow.createDiv({ cls: 'wl-nw-bar-col' });
@@ -680,7 +720,13 @@ export class WidgetRenderer {
 
 	// ── wl-now-next ───────────────────────────────────────────────────────────────
 
-	private processWlNowNext(_source: string, el: HTMLElement): void {
+	private processWlNowNext(source: string, el: HTMLElement): void {
+		this.widgetRerender.set(el, () => this.renderWlNowNext(source, el));
+		this.renderWlNowNext(source, el);
+	}
+
+	private renderWlNowNext(_source: string, el: HTMLElement): void {
+		el.empty();
 		el.addClass('wl-wnownext');
 
 		const pinnedTitle = this.dataManager.getTitles().find((t) => t.pinned);
@@ -691,12 +737,13 @@ export class WidgetRenderer {
 
 		const entries = this.dataManager.getAirtimeEntries();
 		const titles = this.dataManager.getTitles();
+		const titleMap = new Map(titles.map((t) => [t.id, t]));
 		const now = Date.now();
 		let bestEntry: { titleName: string; type: string; releaseDate: string; daysUntil: number } | null = null;
 		let bestMs = Infinity;
 
 		for (const entry of entries) {
-			const title = titles.find((t) => t.id === entry.titleId);
+			const title = titleMap.get(entry.titleId);
 			if (!title || entry.schedule.recurrence !== 'once' || !entry.schedule.releaseDate) continue;
 			const ms = new Date(entry.schedule.releaseDate + 'T12:00:00').getTime();
 			if (ms >= now && ms < bestMs) {
@@ -728,12 +775,13 @@ export class WidgetRenderer {
 		} else if (pinnedGroup) {
 			nowCol.createDiv({ cls: 'wl-full-card-title', text: pinnedGroup.name });
 			const allTitles = this.dataManager.getTitles();
+			const titleMap2 = new Map(allTitles.map((t) => [t.id, t]));
 			const members = pinnedGroup.titleIds
-				.map((id) => allTitles.find((t) => t.id === id))
+				.map((id) => titleMap2.get(id))
 				.filter((t): t is WatchLogTitle => t !== undefined);
 			const totalWatched = members.reduce((s, t) => s + t.watchedEpisodes.length, 0);
-			const totalEps = members.reduce((s, t) => s + t.totalEpisodes, 0);
-			const progress = totalEps > 0 ? Math.round((totalWatched / totalEps) * 100) : 0;
+			const totalEps = members.reduce((s, t) => s + this.dataManager.getEffectiveTotal(t), 0);
+			const progress = totalEps > 0 ? Math.min(100, Math.round((totalWatched / totalEps) * 100)) : 0;
 			nowCol.createDiv({ cls: 'wl-full-card-sub', text: `${members.length} title${members.length !== 1 ? 's' : ''} · ${progress}%` });
 		} else {
 			const pinned = pinnedTitle!;

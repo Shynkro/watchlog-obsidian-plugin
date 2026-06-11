@@ -1144,15 +1144,13 @@ export class ReadingDetailModal extends Modal {
 			: (settings.mangaCustomFieldStyle ?? 'fill');
 		const color600 = col.color ?? DEFAULT_FIELD_COLOR;
 
+		// Fill/border looks live in CSS keyed off the table's is-border-mode class;
+		// only the per-column colour is dynamic.
 		if (style === 'fill') {
 			const color50 = FIELD_COLOR_50[color600] ?? '#F1EFE8';
-			labelCell.style.backgroundColor = color50;
-			labelCell.style.color = '#1e1e1e';
+			labelCell.setCssProps({ '--wl-field-bg': color50 });
 		} else {
-			labelCell.style.border = `1.5px solid ${color600}`;
-			labelCell.style.boxSizing = 'border-box';
-			valueCell.style.border = '0.5px solid var(--background-modifier-border)';
-			valueCell.style.boxSizing = 'border-box';
+			labelCell.setCssProps({ '--wl-field-border': color600 });
 		}
 
 		const raw = item.customFields?.[col.id];

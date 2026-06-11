@@ -166,7 +166,7 @@ export class WatchLogView extends ItemView {
 		const tabContent = this.contentEl.querySelector<HTMLElement>(':scope > .wl-tab-content');
 		// Remove the pinned height and let the observer re-assert the correct
 		// full height now the keyboard has closed.
-		tabContent?.style.removeProperty('height');
+		tabContent?.removeClass('wl-tab-content-pinned');
 		this.lastAppliedTabHeight = -1;
 		this.applyTabContentHeight();
 	}
@@ -206,10 +206,11 @@ export class WatchLogView extends ItemView {
 		if (target === this.lastAppliedTabHeight) return;
 		this.lastAppliedTabHeight = target;
 
-		// Explicit px height + flex:none beats the `flex: 1 1 0%` base rule, which
-		// this WebView fails to distribute. min-height:0 / overflow-y stay intact.
-		tabContent.style.setProperty('height', `${target}px`, 'important');
-		tabContent.style.setProperty('flex', 'none', 'important');
+		// The pinned class applies an explicit px height (via CSS variable) +
+		// flex:none, beating the `flex: 1 1 0%` base rule, which this WebView
+		// fails to distribute. min-height:0 / overflow-y stay intact.
+		tabContent.addClass('wl-tab-content-pinned');
+		tabContent.setCssProps({ '--wl-pinned-tab-height': `${target}px` });
 	}
 
 	/** Called after tab content changes on mobile to re-apply the height. */
@@ -244,8 +245,8 @@ export class WatchLogView extends ItemView {
 		// Clear the explicit sizing the mobile keyboard fix applied to wl-tab-content.
 		const tabContent = this.contentEl.querySelector<HTMLElement>('.wl-tab-content');
 		if (tabContent) {
-			tabContent.style.removeProperty('height');
-			tabContent.style.removeProperty('flex');
+			tabContent.removeClass('wl-tab-content-pinned');
+			tabContent.style.removeProperty('--wl-pinned-tab-height');
 		}
 		this.destroyDraftsTab();
 		this.customListsTab?.destroy();
@@ -527,7 +528,7 @@ export class WatchLogView extends ItemView {
 			if (Date.now() - renderTime > 300) return;
 			const computed = window.getComputedStyle(el).overflow;
 			if (computed === 'hidden') {
-				el.style.overflow = 'auto';
+				el.setCssProps({ overflow: 'auto' });
 			}
 		});
 		this.overflowObserver.observe(el, { attributes: true, attributeFilter: ['style', 'class'] });

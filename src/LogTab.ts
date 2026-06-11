@@ -236,13 +236,8 @@ export class LogTab {
 		this.lastFirst = -1;
 		this.lastLast = -1;
 
-		spacer.style.height = `${this.totalHeight}px`;
-		spacer.style.position = 'relative';
-		viewport.style.position = 'absolute';
-		viewport.style.top = '0';
-		viewport.style.left = '0';
-		viewport.style.right = '0';
-		viewport.style.height = `${this.totalHeight}px`;
+		spacer.setCssProps({ height: `${this.totalHeight}px` });
+		viewport.setCssProps({ height: `${this.totalHeight}px` });
 
 		this.scrollHandler = () => {
 			if (this.scrollRAF !== null) return;
@@ -300,17 +295,14 @@ export class LogTab {
 			if (row.type === 'header') {
 				el = activeDocument.createElement('div');
 				el.className = 'wl-log-day-header';
-				el.style.height = `${HEADER_HEIGHT}px`;
+				el.setCssProps({ height: `${HEADER_HEIGHT}px` });
 				el.textContent = formatDayHeader(row.date!);
 			} else {
 				el = this.buildEntryRow(row);
 			}
 
 			const offset = this.rowOffsets[i] ?? 0;
-			el.style.position = 'absolute';
-			el.style.top = `${offset}px`;
-			el.style.left = '0';
-			el.style.right = '0';
+			el.setCssProps({ top: `${offset}px` });
 
 			viewport.appendChild(el);
 			this.renderedNodes.set(i, el);
@@ -326,7 +318,7 @@ export class LogTab {
 
 		const el = activeDocument.createElement('div');
 		el.className = 'wl-log-entry';
-		el.style.height = `${ROW_HEIGHT}px`;
+		el.setCssProps({ height: `${ROW_HEIGHT}px` });
 
 		const dotCol = activeDocument.createElement('div');
 		dotCol.className = 'wl-log-dot-col';

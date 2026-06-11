@@ -557,11 +557,9 @@ export class ListTab {
 
 	private applyPosterToCard(card: HTMLElement, url: string): void {
 		const img = card.querySelector<HTMLImageElement>('.wl-card-poster');
-		const placeholder = card.querySelector<HTMLElement>('.wl-card-poster-placeholder');
 		if (!img) return;
 		img.onload = () => {
-			img.style.display = 'block';
-			if (placeholder) placeholder.style.display = 'none';
+			card.addClass('has-poster');
 		};
 		img.onerror = () => {
 			const titleId = card.dataset.titleId;
@@ -636,11 +634,9 @@ export class ListTab {
 		const isManual = !!(title.manualPosterUrl && title.manualPosterUrl.trim() !== '');
 		if (display && display.startsWith('http')) {
 			img.src = display;
-			img.style.display = 'block';
-			placeholder.style.display = 'none';
+			card.addClass('has-poster');
 			img.onerror = () => {
-				img.style.display = 'none';
-				placeholder.style.display = '';
+				card.removeClass('has-poster');
 				// Only mark the auto-fetched URL as 'none' — don't touch a user's manual choice.
 				if (!isManual) this.dataManager.updatePosterUrl(title.id, 'none');
 			};
@@ -765,10 +761,9 @@ export class ListTab {
 		);
 		if (img) {
 			img.removeAttribute('src');
-			img.style.display = 'none';
 		}
+		card.removeClass('has-poster');
 		if (placeholder) {
-			placeholder.style.display = '';
 			placeholder.addClass('is-loading');
 		}
 
@@ -885,7 +880,6 @@ export class ListTab {
 			cls: 'wl-input',
 			attr: { type: 'text', value: group.name, placeholder: 'Group name' },
 		});
-		input.style.width = '100%';
 		const btnRow = modal.contentEl.createDiv({ cls: 'wl-modal-btn-row' });
 		const submit = (): void => {
 			const newName = input.value.trim();

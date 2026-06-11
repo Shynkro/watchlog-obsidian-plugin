@@ -324,8 +324,8 @@ export class TitleDetailModal extends Modal {
 		});
 		textarea.value = this.title.notes;
 		const autoResize = (): void => {
-			textarea.style.height = 'auto';
-			textarea.style.height = `${textarea.scrollHeight}px`;
+			textarea.setCssProps({ height: 'auto' });
+			textarea.setCssProps({ height: `${textarea.scrollHeight}px` });
 		};
 		textarea.addEventListener('input', autoResize);
 		window.setTimeout(autoResize, 0);
@@ -603,12 +603,10 @@ export function buildTitleCardElement(
 
 	const showImg = (url: string): void => {
 		img.src = url;
-		img.style.display = 'block';
-		placeholder.style.display = 'none';
+		card.addClass('has-poster');
 	};
 	const showPlaceholder = (): void => {
-		img.style.display = 'none';
-		placeholder.style.display = '';
+		card.removeClass('has-poster');
 	};
 
 	const display = getDisplayPoster(title);

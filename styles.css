@@ -4509,6 +4509,24 @@
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
 }
 
+/* Group-card collage: equal vertical strips of member covers, separated by
+   thin background-color lines (the flex gap reveals the card background). */
+.wl-card-collage {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  gap: 2px;
+  background-color: var(--background-primary);
+}
+
+.wl-card-collage-strip {
+  flex: 1;
+  min-width: 0;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
 .wl-card-progress-bar {
   margin-top: 6px;
   width: 100%;

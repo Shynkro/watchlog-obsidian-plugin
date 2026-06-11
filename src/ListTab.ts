@@ -9,6 +9,7 @@ import { AddFromUrlModal } from './AddFromUrlModal';
 import { EditTitleModal } from './EditTitleModal';
 import { ConfirmModal } from './ConfirmModal';
 import { TitleDetailModal, GroupDetailModal } from './TitleDetailModal';
+import { renderGroupCollage } from './CollageUtil';
 
 // ── Display item type ─────────────────────────────────────────────────────────
 
@@ -796,10 +797,8 @@ export class ListTab {
 		const card = parent.createDiv({ cls: 'wl-card wl-card-group' });
 		if (cardHeight !== undefined) card.style.height = `${cardHeight}px`;
 
-		const placeholder = card.createDiv({ cls: 'wl-card-poster-placeholder' });
-		placeholder.style.backgroundColor = typeColor;
 		const letter = (group.name.trim().charAt(0) || '?').toUpperCase();
-		placeholder.createSpan({ text: letter });
+		renderGroupCollage(card, members, getDisplayPoster, { letter, color: typeColor });
 
 		const overlay = card.createDiv({ cls: 'wl-card-overlay' });
 		overlay.createSpan({ cls: 'wl-card-title', text: group.name });

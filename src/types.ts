@@ -2,6 +2,8 @@ export interface Season {
 	name: string;
 	episodes: number;
 	offset: number;
+	/** Season-relative episode numbers that are excluded from progress (filler, recaps, etc.) */
+	skippedEpisodes?: number[];
 }
 
 export interface WatchLogTitle {
@@ -24,7 +26,16 @@ export interface WatchLogTitle {
 	seasons: Season[];
 	watchedEpisodes: number[];
 	malId?: number;
+	anilistId?: number;
+	communityRating?: number;
+	communityVotes?: number;
+	communitySource?: '' | 'imdb' | 'mal' | 'anilist' | 'tmdb';
+	communityRatingLastFetched?: string;
 	pinned?: boolean;
+	/** '' = unfetched, 'none' = API returned nothing, or a URL string */
+	posterUrl?: string;
+	/** User-supplied override — takes priority over posterUrl when non-empty. */
+	manualPosterUrl?: string;
 }
 
 export interface WatchLogGroup {
@@ -49,6 +60,7 @@ export interface CustomListColumn {
 	options?: string[];   // only for type: 'select'
 	bold?: boolean;       // only for type: 'text' | 'number'
 	italic?: boolean;     // only for type: 'text' | 'number'
+	autoTime?: boolean;   // only for type: 'number' — auto-populate with remaining watch time
 }
 
 export interface CustomListRow {
@@ -57,7 +69,7 @@ export interface CustomListRow {
 	[key: string]: string | number | boolean | undefined;
 }
 
-// ── Maybe types (Feature 2c) ──────────────────────────────────────────────────
+// ── Maybe types ─────────────────────────────────────────────────────────────
 
 export interface MaybeTitle {
 	id: string;
@@ -88,12 +100,15 @@ export interface DraftPersistState {
 
 export interface WatchLogPluginSettings {
 	colorTheme: 'default' | 'nightfall' | 'bluez';
-	defaultView: 'dashboard' | 'watchlist';
+	defaultWatchlistView: 'list' | 'cards';
 	autoCompleteOnLastEpisode: boolean;
 	setFinishDateAutomatically: boolean;
 	omdbApiKey: string;
 	tmdbApiKey: string;
+	googleBooksApiKey: string;
 	activeApi: 'OMDb' | 'TMDB';
+	animeApiSource: 'jikan' | 'anilist';
+	typeApiMapping: Record<string, 'anime' | 'movie' | ''>;
 	types: TagDefinition[];
 	statuses: TagDefinition[];
 	reviews: TagDefinition[];
@@ -104,6 +119,8 @@ export interface WatchLogPluginSettings {
 	seasonPalette: string[];
 	dashboardCardStyle: 'circles' | 'rectangles';
 	episodeNumbering: 'absolute' | 'per-season';
+	/** User-configurable colors for the Reading type badges (Manga / Book). */
+	readingTypeColors: { manga: string; book: string };
 	customListsFolder: string;
 	defaultCustomColumns: CustomListColumn[];
 	listFilters: {
@@ -119,11 +136,139 @@ export interface WatchLogPluginSettings {
 		ratingEmptyOnly?: boolean;
 		priorityEmptyOnly?: boolean;
 		recentlyArrivedOnly?: boolean;
+		groupsOnly?: boolean;
 	};
 	draftsVaultTag: string;
 	draftsAfterAdding: 'remove' | 'keep';
 	customListTabOrder: string[];
+	showHintBanners: boolean;
+	showUpcomingStatusBar: boolean;
 }
+
+// ── Reading types ─────────────────────────────────────────────────────────────
+
+export type ReadingStatus = 'Reading' | 'Completed' | 'Plan to Read' | 'To be released' | 'Dropped';
+
+export const READING_STATUSES: ReadingStatus[] = [
+	'Reading',
+	'Completed',
+	'Plan to Read',
+	'To be released',
+	'Dropped',
+];
+
+/**
+ * Statuses the user may pick manually. "To be released" is auto-managed from the
+ * release date (mirrors the watchlist), so it is excluded from every dropdown.
+ */
+export const SELECTABLE_READING_STATUSES: ReadingStatus[] = READING_STATUSES.filter(
+	(s) => s !== 'To be released',
+);
+
+export interface Book {
+	id: string;
+	title: string;
+	author: string;
+	status: ReadingStatus;
+	rating: number;
+	pagesRead: number;
+	totalPages: number;
+	chaptersRead: number;
+	totalChapters: number;
+	coverUrl: string;
+	googleBooksId: string;
+	externalLink?: string;
+	vaultPage: string;
+	dateStarted: string | null;
+	dateFinished: string | null;
+	releaseDate: string | null;
+	dateAdded: string;
+	dateModified: string;
+	customFields: Record<string, string | number>;
+}
+
+export interface Manga {
+	id: string;
+	title: string;
+	author: string;
+	status: ReadingStatus;
+	rating: number;
+	chaptersRead: number;
+	totalChapters: number;
+	volumesRead: number;
+	totalVolumes: number;
+	coverUrl: string;
+	malId: string;
+	externalLink?: string;
+	vaultPage: string;
+	dateStarted: string | null;
+	dateFinished: string | null;
+	releaseDate: string | null;
+	dateAdded: string;
+	dateModified: string;
+	customFields: Record<string, string | number>;
+}
+
+export interface ReadingCustomColumn {
+	id: string;
+	name: string;
+	type: 'text' | 'number' | 'select';
+	options: string[];
+	color?: string; // 600-stop hex; defaults to FIELD_COLORS gray
+}
+
+export interface ReadingSavedFilterPreset {
+	name: string;
+	statusInclude: ReadingStatus[];
+	ratingMode: 'all' | 'has' | 'none';
+}
+
+export interface ReadingSettings {
+	defaultFolder: string;
+	defaultStatus: ReadingStatus;
+	defaultSubTab?: 'books' | 'manga';
+	bookCustomFieldStyle?: 'fill' | 'border';
+	mangaCustomFieldStyle?: 'fill' | 'border';
+	// Single saved filter scoped per sub-tab (Books / Manga keep their own).
+	savedFilters?: Partial<Record<'books' | 'manga', ReadingSavedFilterPreset>>;
+}
+
+export interface FieldColorEntry {
+	color600: string;
+	color50: string;
+}
+
+export const FIELD_COLORS: FieldColorEntry[] = [
+	{ color600: '#534AB7', color50: '#EEEDFE' },
+	{ color600: '#1D9E75', color50: '#E1F5EE' },
+	{ color600: '#EF9F27', color50: '#FAEEDA' },
+	{ color600: '#378ADD', color50: '#E6F1FB' },
+	{ color600: '#D85A30', color50: '#FAECE7' },
+	{ color600: '#993556', color50: '#FBEAF0' },
+	{ color600: '#639922', color50: '#EAF3DE' },
+	{ color600: '#5F5E5A', color50: '#F1EFE8' },
+];
+
+export const FIELD_COLOR_50: Record<string, string> = Object.fromEntries(
+	FIELD_COLORS.map(({ color600, color50 }) => [color600, color50]),
+);
+
+export const DEFAULT_FIELD_COLOR = '#5F5E5A';
+
+export interface ReadingData {
+	books: Book[];
+	manga: Manga[];
+	bookColumns: ReadingCustomColumn[];
+	mangaColumns: ReadingCustomColumn[];
+	settings: ReadingSettings;
+}
+
+export const DEFAULT_READING_SETTINGS: ReadingSettings = {
+	defaultFolder: 'WatchLog/Reading',
+	defaultStatus: 'Plan to Read',
+	bookCustomFieldStyle: 'fill',
+	mangaCustomFieldStyle: 'fill',
+};
 
 // ── Airtime types ─────────────────────────────────────────────────────────────
 
@@ -139,13 +284,30 @@ export interface AirtimeSchedule {
 
 export interface AirtimeEntry {
 	id: string;
+	/** For watchlist entries: a WatchLogTitle id. For reading entries: a Book/Manga id. */
 	titleId: string;
+	/** Absent or 'watchlist' = a watch title; 'reading' = a Book/Manga entry. */
+	source?: 'watchlist' | 'reading';
+	/** Only set when source === 'reading'. */
+	readingKind?: 'book' | 'manga';
 	schedule: AirtimeSchedule;
+	/**
+	 * Watch entries: current season. Reading entries reuse this slot for the
+	 * current volume (the "season" analog).
+	 */
 	currentSeason?: number;
+	/**
+	 * Watch entries: current episode. Reading entries reuse this slot for the
+	 * current chapter (the "episode" analog — this is what auto-increments).
+	 */
 	currentEpisode?: number;
-	/** Total episodes to track for final-episode detection (synced from Watchlist). */
+	/**
+	 * Total episodes to track for final-episode detection (synced from Watchlist).
+	 * Reading entries reuse this slot for total chapters; a value of 0 or 1 marks
+	 * a single-release item (like a movie/book).
+	 */
 	totalEpisodes?: number;
-	/** Total seasons (informational). */
+	/** Total seasons (informational). Reading entries reuse this slot for total volumes. */
 	totalSeasons?: number;
 	/** YYYY-MM-DD: set when you tick an episode, so the countdown resets to the next occurrence. */
 	lastAcknowledgedDate?: string;
@@ -161,6 +323,7 @@ export interface SavedFilterPreset {
 	ratingEmptyOnly?: boolean;
 	priorityEmptyOnly?: boolean;
 	recentlyArrivedOnly?: boolean;
+	groupsOnly?: boolean;
 }
 
 export interface WatchLogData {
@@ -172,83 +335,10 @@ export interface WatchLogData {
 	pinnedGroupId?: string | null;
 	drafts?: DraftPersistState;
 	savedFilterPreset?: SavedFilterPreset | null;
+	posterRetryDone?: boolean;
 }
 
 // ── Airtime utility functions ─────────────────────────────────────────────────
-
-export function getAirtimeNextDate(schedule: AirtimeSchedule): Date | null {
-	const now = new Date();
-	const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-	if (schedule.recurrence === 'once') {
-		if (!schedule.releaseDate) return null;
-		const d = new Date(schedule.releaseDate + 'T12:00:00');
-		if (schedule.releaseTime) {
-			const parts = schedule.releaseTime.split(':');
-			d.setHours(parseInt(parts[0] ?? '0'), parseInt(parts[1] ?? '0'), 0, 0);
-		}
-		return d;
-	}
-
-	if (schedule.recurrence === 'daily') {
-		const d = new Date(todayMidnight);
-		if (schedule.releaseTime) {
-			const parts = schedule.releaseTime.split(':');
-			d.setHours(parseInt(parts[0] ?? '0'), parseInt(parts[1] ?? '0'), 0, 0);
-			if (d <= now) d.setDate(d.getDate() + 1);
-		}
-		return d;
-	}
-
-	if (schedule.recurrence === 'weekly' && schedule.dayOfWeek !== undefined) {
-		const currentDay = now.getDay();
-		let daysUntil = (schedule.dayOfWeek - currentDay + 7) % 7;
-		const d = new Date(todayMidnight);
-		if (schedule.releaseTime) {
-			const parts = schedule.releaseTime.split(':');
-			d.setHours(parseInt(parts[0] ?? '0'), parseInt(parts[1] ?? '0'), 0, 0);
-			if (daysUntil === 0 && d <= now) daysUntil = 7;
-		}
-		d.setDate(d.getDate() + daysUntil);
-		return d;
-	}
-
-	if (schedule.recurrence === 'monthly' && schedule.dayOfMonth) {
-		const d = new Date(now.getFullYear(), now.getMonth(), schedule.dayOfMonth);
-		if (schedule.releaseTime) {
-			const parts = schedule.releaseTime.split(':');
-			d.setHours(parseInt(parts[0] ?? '0'), parseInt(parts[1] ?? '0'), 0, 0);
-		}
-		if (d <= now) d.setMonth(d.getMonth() + 1);
-		return d;
-	}
-
-	return null;
-}
-
-export function getAirtimeCountdown(
-	schedule: AirtimeSchedule,
-): { label: string; kind: 'today' | 'tomorrow' | 'days' | 'missed' } {
-	const next = getAirtimeNextDate(schedule);
-	if (!next) return { label: '—', kind: 'days' };
-
-	const now = new Date();
-	if (schedule.recurrence === 'once' && next < now) {
-		return { label: 'Missed', kind: 'missed' };
-	}
-
-	const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-	const tomorrow = new Date(today);
-	tomorrow.setDate(tomorrow.getDate() + 1);
-	const nextMidnight = new Date(next.getFullYear(), next.getMonth(), next.getDate());
-
-	if (nextMidnight.getTime() === today.getTime()) return { label: 'Today', kind: 'today' };
-	if (nextMidnight.getTime() === tomorrow.getTime()) return { label: 'Tomorrow', kind: 'tomorrow' };
-
-	const daysUntil = Math.round((nextMidnight.getTime() - today.getTime()) / 86400000);
-	if (daysUntil < 0) return { label: 'Missed', kind: 'missed' };
-	return { label: `in ${daysUntil} days`, kind: 'days' };
-}
 
 export function getAirtimeScheduleString(schedule: AirtimeSchedule): string {
 	const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -274,12 +364,15 @@ export function getAirtimeScheduleString(schedule: AirtimeSchedule): string {
 
 export const DEFAULT_SETTINGS: WatchLogPluginSettings = {
 	colorTheme: 'default',
-	defaultView: 'watchlist',
+	defaultWatchlistView: 'cards',
 	autoCompleteOnLastEpisode: true,
 	setFinishDateAutomatically: false,
 	omdbApiKey: '',
 	tmdbApiKey: '',
+	googleBooksApiKey: '',
 	activeApi: 'OMDb',
+	animeApiSource: 'jikan',
+	typeApiMapping: {},
 	types: [
 		{ name: 'Anime', color: '#1D9E75' },
 		{ name: 'Movie', color: '#378ADD' },
@@ -309,11 +402,14 @@ export const DEFAULT_SETTINGS: WatchLogPluginSettings = {
 	coloredTypeBadges: true,
 	dashboardCardStyle: 'circles',
 	episodeNumbering: 'absolute',
+	readingTypeColors: { manga: '#D4537E', book: '#D85A30' },
 	customListsFolder: 'WatchLog/CustomLists',
 	defaultCustomColumns: [],
 	draftsVaultTag: '#watchlog',
 	draftsAfterAdding: 'keep',
 	customListTabOrder: [],
+	showHintBanners: true,
+	showUpcomingStatusBar: true,
 	listFilters: {
 		typeExclude: [],
 		statusExclude: [],
@@ -347,6 +443,19 @@ export function getThemedColor(name: string, defaultColor: string, theme: string
 	return defaultColor;
 }
 
+/**
+ * Returns the user-configured badge color for a Reading type (Book / Manga).
+ * Mirrors how watchlist badges resolve `settings.types[].color`, but for the two
+ * fixed Reading kinds whose colors live in `settings.readingTypeColors`.
+ */
+export function getReadingTypeColor(
+	kind: 'book' | 'manga',
+	settings: WatchLogPluginSettings,
+): string {
+	const colors = settings.readingTypeColors ?? DEFAULT_SETTINGS.readingTypeColors;
+	return kind === 'manga' ? colors.manga : colors.book;
+}
+
 // ── Shared utility ────────────────────────────────────────────────────────────
 
 /** Converts a stored YYYY-MM-DD date string to DD/MM/YYYY for display. */
@@ -367,6 +476,9 @@ export function parseDateInput(str: string): string | null {
 	if (!dd || !mm || !yyyy || yyyy.length !== 4) return null;
 	const d = parseInt(dd, 10), mo = parseInt(mm, 10), y = parseInt(yyyy, 10);
 	if (isNaN(d) || isNaN(mo) || isNaN(y) || mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+	// Reject impossible dates (e.g., Feb 31): Date constructor rolls over, so verify components match.
+	const check = new Date(y, mo - 1, d);
+	if (check.getFullYear() !== y || check.getMonth() !== mo - 1 || check.getDate() !== d) return null;
 	return `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
 }
 
@@ -388,6 +500,51 @@ export function parseReleaseDateInput(str: string): string | null {
 	return null;
 }
 
+/**
+ * True when a `YYYY-MM-DD` release date is strictly in the future (after today).
+ * Mirrors the watchlist's auto "To be released" check (see EditTitleModal).
+ */
+export function isReleaseDateFuture(releaseDate: string | null | undefined): boolean {
+	if (!releaseDate || !/^\d{4}-\d{2}-\d{2}$/.test(releaseDate)) return false;
+	const today = new Date();
+	today.setHours(0, 0, 0, 0);
+	const releaseMs = new Date(releaseDate + 'T12:00:00').getTime();
+	return releaseMs > today.getTime();
+}
+
+/**
+ * Resolves the API group that should be used for a given title type.
+ *  - The three built-in types are hardcoded and never live in the mapping.
+ *  - Any other type is routed via `settings.typeApiMapping`; missing entries
+ *    return `''` (no API configured).
+ */
+export function getApiGroupForType(
+	type: string,
+	mapping: Record<string, 'anime' | 'movie' | ''> | undefined,
+): 'anime' | 'movie' | '' {
+	if (type === 'Anime') return 'anime';
+	if (type === 'Movie' || type === 'TV Show' || type === 'TvShow') return 'movie';
+	return mapping?.[type] ?? '';
+}
+
+/**
+ * Returns the poster URL to render for a title. A non-empty `manualPosterUrl`
+ * takes priority over the auto-fetched `posterUrl`.
+ */
+export function getDisplayPoster(title: WatchLogTitle): string {
+	if (title.manualPosterUrl && title.manualPosterUrl.trim() !== '') {
+		return title.manualPosterUrl;
+	}
+	return title.posterUrl ?? '';
+}
+
+export function formatVoteCount(votes: number): string {
+	if (!votes || votes < 0) return '0';
+	if (votes >= 1_000_000) return (votes / 1_000_000).toFixed(1) + 'M';
+	if (votes >= 1_000) return (votes / 1_000).toFixed(1) + 'K';
+	return votes.toString();
+}
+
 export function formatTime(minutes: number): string {
 	if (minutes <= 0) return '0m';
 	const h = Math.floor(minutes / 60);
@@ -402,12 +559,67 @@ export function formatTime(minutes: number): string {
 
 export interface AnimeSearchResult {
 	malId: number;
+	anilistId?: number;
 	title: string;
 	episodes: number;
 	duration: number;
 	releaseDate: string;
 	url: string;
 	seasons: Season[];
+	description?: string;
+	averageScore?: number;
+	genres?: string[];
+	posterUrl?: string;
+}
+
+// ── AniList API shapes ───────────────────────────────────────────────────────
+
+export interface AniListTitle {
+	romaji?: string | null;
+	english?: string | null;
+	native?: string | null;
+}
+
+export interface AniListDate {
+	year?: number | null;
+	month?: number | null;
+	day?: number | null;
+}
+
+export interface AniListCoverImage {
+	large?: string | null;
+	medium?: string | null;
+}
+
+export interface AniListMedia {
+	id: number;
+	title?: AniListTitle | null;
+	episodes?: number | null;
+	duration?: number | null;
+	status?: string | null;
+	season?: string | null;
+	seasonYear?: number | null;
+	startDate?: AniListDate | null;
+	averageScore?: number | null;
+	popularity?: number | null;
+	coverImage?: AniListCoverImage | null;
+	description?: string | null;
+	genres?: string[] | null;
+	nextAiringEpisode?: {
+		airingAt?: number | null;
+		episode?: number | null;
+		timeUntilAiring?: number | null;
+	} | null;
+}
+
+export interface AniListSearchResponse {
+	data?: { Page?: { media?: AniListMedia[] } };
+	errors?: Array<{ message: string }>;
+}
+
+export interface AniListMediaResponse {
+	data?: { Media?: AniListMedia };
+	errors?: Array<{ message: string }>;
 }
 
 export interface MediaSearchResult {
@@ -458,6 +670,8 @@ export interface OmdbDetailResponse {
 	Type: string;
 	Response: string;
 	Error?: string;
+	imdbRating?: string;
+	imdbVotes?: string;
 }
 
 export interface OmdbSeasonResponse {

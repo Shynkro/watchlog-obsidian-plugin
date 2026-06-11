@@ -4,6 +4,8 @@ import type WatchLogPlugin from './main';
 import type { DataManager } from './DataManager';
 import type { DraftPersistState, WatchLogTitle } from './types';
 import { AddTitleModal } from './AddTitleModal';
+import { AddReadingModal } from './AddReadingModal';
+import { DraftChoiceModal } from './DraftChoiceModal';
 
 interface LiveDraftEntry {
 	titleKey: string;
@@ -21,7 +23,7 @@ export class DraftsTab {
 
 	private eventRef: EventRef | null = null;
 	private destroyed = false;
-	private scanDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+	private scanDebounceTimer: number | null = null;
 	private lastScanEntries: LiveDraftEntry[] = [];
 	private persistState: DraftPersistState = {
 		dismissed: [],
@@ -57,7 +59,7 @@ export class DraftsTab {
 	destroy(): void {
 		this.destroyed = true;
 		if (this.scanDebounceTimer) {
-			clearTimeout(this.scanDebounceTimer);
+			window.clearTimeout(this.scanDebounceTimer);
 			this.scanDebounceTimer = null;
 		}
 		if (this.eventRef) {
@@ -69,8 +71,8 @@ export class DraftsTab {
 	// ── Persistence ───────────────────────────────────────────────────────────────
 
 	private async loadPersistState(): Promise<void> {
-		const data = (await this.plugin.loadData()) as Record<string, unknown> | null;
-		const drafts = data?.['drafts'] as Partial<DraftPersistState> | undefined;
+		const data = this.plugin.dataManager.getData() as unknown as Record<string, unknown>;
+		const drafts = data['drafts'] as Partial<DraftPersistState> | undefined;
 		if (drafts) {
 			this.persistState = {
 				dismissed: drafts.dismissed ?? [],
@@ -82,8 +84,9 @@ export class DraftsTab {
 	}
 
 	private async savePersistState(): Promise<void> {
-		const data = ((await this.plugin.loadData()) as Record<string, unknown> | null) ?? {};
-		await this.plugin.saveData({ ...data, drafts: this.persistState });
+		const data = this.plugin.dataManager.getData() as unknown as Record<string, unknown>;
+		data['drafts'] = this.persistState;
+		this.plugin.dataManager.queueSave();
 	}
 
 	// ── Vault scanning ────────────────────────────────────────────────────────────
@@ -92,19 +95,26 @@ export class DraftsTab {
 		return this.plugin.settings.draftsVaultTag ?? '#watchlog';
 	}
 
-	private async scanVault(): Promise<LiveDraftEntry[]> {
-		const tag = this.getTag();
-		const files = this.plugin.app.vault.getMarkdownFiles();
-		// Map: lowercase title key → { sources, displayTitle }
+	/**
+	 * Scans the vault for inline-tag draft mentions, returning a map of
+	 * lowercase title key → { sources, displayTitle }. Pure (no persistState side
+	 * effects) so it can back both the full render and the count-only badge scan.
+	 * Inline-tag matching only — frontmatter tags are intentionally ignored.
+	 */
+	private static async scanTaggedFiles(
+		plugin: WatchLogPlugin,
+		tag: string,
+	): Promise<Map<string, { sources: Set<string>; displayTitle: string }>> {
+		const files = plugin.app.vault.getMarkdownFiles();
 		const liveMap: Map<string, { sources: Set<string>; displayTitle: string }> = new Map();
 
 		for (const file of files) {
-			const cache = this.plugin.app.metadataCache.getFileCache(file);
+			const cache = plugin.app.metadataCache.getFileCache(file);
 			const hasTag = cache?.tags?.some((t) => t.tag === tag) ?? false;
 			if (!hasTag) continue;
 
 			try {
-				const content = await this.plugin.app.vault.cachedRead(file);
+				const content = await plugin.app.vault.cachedRead(file);
 				const lines = content.split('\n');
 				for (const line of lines) {
 					if (!line.includes(tag)) continue;
@@ -128,6 +138,13 @@ export class DraftsTab {
 				// Skip unreadable files
 			}
 		}
+
+		return liveMap;
+	}
+
+	private async scanVault(): Promise<LiveDraftEntry[]> {
+		const tag = this.getTag();
+		const liveMap = await DraftsTab.scanTaggedFiles(this.plugin, tag);
 
 		// Record firstSeen and displayTitle for newly discovered entries
 		let stateChanged = false;
@@ -168,8 +185,8 @@ export class DraftsTab {
 	// ── Event listener ────────────────────────────────────────────────────────────
 
 	private triggerDebouncedRender(): void {
-		if (this.scanDebounceTimer) clearTimeout(this.scanDebounceTimer);
-		this.scanDebounceTimer = setTimeout(() => {
+		if (this.scanDebounceTimer) window.clearTimeout(this.scanDebounceTimer);
+		this.scanDebounceTimer = window.setTimeout(() => {
 			this.scanDebounceTimer = null;
 			void this.render();
 		}, 500);
@@ -186,7 +203,7 @@ export class DraftsTab {
 
 	// ── Fuzzy match helper ────────────────────────────────────────────────────────
 
-	private buildFuse(titles: WatchLogTitle[]): Fuse<WatchLogTitle> {
+	private static buildFuse(titles: WatchLogTitle[]): Fuse<WatchLogTitle> {
 		return new Fuse(titles, {
 			keys: ['title'],
 			threshold: 0.35,
@@ -194,9 +211,37 @@ export class DraftsTab {
 		});
 	}
 
-	private fuzzyMatchesWatchlist(displayTitle: string, fuse: Fuse<WatchLogTitle>): boolean {
+	private static fuzzyMatchesWatchlist(displayTitle: string, fuse: Fuse<WatchLogTitle>): boolean {
 		const results = fuse.search(displayTitle);
 		return results.length > 0 && (results[0]?.score ?? 1) <= 0.35;
+	}
+
+	/**
+	 * Count-only drafts scan for the tab badge — mirrors the pending-count logic in
+	 * renderUI without touching the DOM or mutating persistState. "Pending" = a tagged
+	 * draft that is not dismissed, not marked added, and not already in the Watchlist
+	 * (exact key or fuzzy title match). Cheap: only tagged files are read, the rest is
+	 * in-memory. Inline-tag matching only.
+	 */
+	static async computePendingCount(plugin: WatchLogPlugin, dataManager: DataManager): Promise<number> {
+		const tag = plugin.settings.draftsVaultTag ?? '#watchlog';
+		const liveMap = await DraftsTab.scanTaggedFiles(plugin, tag);
+
+		const data = plugin.dataManager.getData() as unknown as Record<string, unknown>;
+		const drafts = data['drafts'] as Partial<DraftPersistState> | undefined;
+		const dismissed = new Set(drafts?.dismissed ?? []);
+		const added = new Set(drafts?.added ?? []);
+		const titleDisplay = drafts?.titleDisplay ?? {};
+
+		const fuse = DraftsTab.buildFuse(dataManager.getTitles());
+
+		let pending = 0;
+		for (const [key, { displayTitle }] of liveMap) {
+			if (dismissed.has(key) || added.has(key)) continue;
+			const display = titleDisplay[key] ?? displayTitle;
+			if (!DraftsTab.fuzzyMatchesWatchlist(display, fuse)) pending++;
+		}
+		return pending;
 	}
 
 	// ── Rendering ─────────────────────────────────────────────────────────────────
@@ -207,7 +252,7 @@ export class DraftsTab {
 
 		const tag = this.getTag();
 		const watchlistTitles = this.dataManager.getTitles();
-		const fuse = this.buildFuse(watchlistTitles);
+		const fuse = DraftsTab.buildFuse(watchlistTitles);
 
 		// Compute fuzzy match results once per entry and cache them
 		const fuzzyCache = new Map<string, boolean>();
@@ -215,7 +260,7 @@ export class DraftsTab {
 			if (entry.added) {
 				fuzzyCache.set(entry.titleKey, false);
 			} else {
-				fuzzyCache.set(entry.titleKey, this.fuzzyMatchesWatchlist(entry.titleDisplay, fuse));
+				fuzzyCache.set(entry.titleKey, DraftsTab.fuzzyMatchesWatchlist(entry.titleDisplay, fuse));
 			}
 		}
 
@@ -226,11 +271,12 @@ export class DraftsTab {
 		}).length;
 		this.onCountChange(pendingCount);
 
-		// Notice banner — matches Custom Lists draft banner style (Fix 3)
-		el.createDiv({
-			cls: 'wl-drafts-notice',
-			text: `⚠ Write ${tag} Movie Name in any note and it appears here automatically. Hit Add when you're ready to add it to your Watchlist.`,
-		});
+		if (this.plugin.settings.showHintBanners) {
+			el.createDiv({
+				cls: 'wl-drafts-notice',
+				text: `⚠ Write ${tag} Movie Name in any note and it appears here automatically. Hit Add when you're ready to add it to your Watchlist.`,
+			});
+		}
 
 		// Count pill
 		const countWrap = el.createDiv({ cls: 'wl-list-title-wrap' });
@@ -256,7 +302,7 @@ export class DraftsTab {
 			return a.firstSeen.localeCompare(b.firstSeen);
 		});
 
-		// Cards (Fix 2 — Upcoming tab card style)
+		// Cards (Upcoming tab card style)
 		const cards = el.createDiv({ cls: 'wl-drafts-cards' });
 		for (const entry of entries) {
 			this.renderCard(cards, entry, fuzzyCache.get(entry.titleKey) ?? false);
@@ -264,7 +310,7 @@ export class DraftsTab {
 	}
 
 	private renderCard(cards: HTMLElement, entry: LiveDraftEntry, isDuplicate: boolean): void {
-		// Build class list (Fix 4 — dim watchlist rows; style added rows)
+		// Build class list — dim watchlist rows; style added rows
 		let cls = 'wl-drafts-card';
 		if (isDuplicate) cls += ' wl-drafts-card-watchlist';
 		if (entry.added) cls += ' wl-drafts-card-added';
@@ -295,7 +341,7 @@ export class DraftsTab {
 			}
 		}
 
-		// "In Watchlist" indicator (center-right, only when applicable) — Fix 4
+		// "In Watchlist" indicator (center-right, only when applicable)
 		const dupEl = card.createDiv({ cls: 'wl-drafts-card-dup' });
 		if (isDuplicate) {
 			dupEl.createSpan({
@@ -347,6 +393,16 @@ export class DraftsTab {
 	}
 
 	private openAddModal(entry: LiveDraftEntry): void {
+		new DraftChoiceModal(this.plugin.app, entry.titleDisplay, (choice) => {
+			if (choice === 'watchlist') {
+				this.openWatchlistAddModal(entry);
+			} else {
+				this.openReadingAddModal(entry, choice);
+			}
+		}).open();
+	}
+
+	private openWatchlistAddModal(entry: LiveDraftEntry): void {
 		const modal = new AddTitleModal(
 			this.plugin.app,
 			this.plugin,
@@ -364,6 +420,18 @@ export class DraftsTab {
 			},
 		);
 		modal.open();
+	}
+
+	private openReadingAddModal(entry: LiveDraftEntry, mode: 'book' | 'manga'): void {
+		new AddReadingModal(
+			this.plugin.app,
+			this.plugin,
+			this.plugin.readingDataManager,
+			mode,
+			() => void this.afterAdded(entry.titleKey),
+			undefined,
+			entry.titleDisplay,
+		).open();
 	}
 
 	private async afterAdded(titleKey: string): Promise<void> {

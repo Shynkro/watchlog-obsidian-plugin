@@ -1,23 +1,26 @@
 # WatchLog
 
-Track your anime, movies, and TV shows directly inside Obsidian — with episode tracking, progress stats, upcoming release alerts, and embeddable widgets.
+Track your anime, movies, TV shows, books, and manga directly inside Obsidian — with episode tracking, progress stats, upcoming release alerts, community ratings, poster/cover art, and embeddable widgets.
 
 ## Features
 
 ### Watchlist
+- **Two views** — switch between a **List** sub-tab (rows with expandable episode/season UI) and a **Cards** sub-tab (responsive poster-card grid with lazy-loaded cover art and a ⋮ menu for Edit / Refresh poster). Cards is the default view.
 - **Full title management** — add, edit, and delete titles with fields for type, status, priority, rating (0–5 stars), notes, episode count, episode duration, release date, and an external link.
 - **Episode tracking** — mark individual episodes as watched; seasons are shown as collapsible groups with per-season progress bars.
+- **Skip episodes** — mark fillers, recaps, or other episodes as skippable per season (syntax `Season 1: 48 (33-37,42)`). Skipped episodes show a purple border and a dash (—), cycle through skipped → watched → empty on click, and are excluded from progress totals. Season headers and the Edit modal display skip counts (e.g. "X to skip · Y to watch").
+- **Community ratings** — show IMDb, MyAnimeList, AniList, or TMDB scores (with vote counts) alongside your personal star rating. Manual ⟳ refresh, plus automatic background refresh when data is missing or over 30 days stale.
 - **Groups** — bundle related titles (a film and its sequel, an anime and its movie) into a single collapsible row. Group rating, status, and progress are computed automatically from members.
+- **Inline status change** — change a title's status from a colored dropdown directly on the expanded row or in the detail modal, without opening the Edit dialog.
 - **Pinning** — pin a title or group so it appears in "Now Watching" widgets across your vault.
 - **Sorting** — two-level sort (primary + secondary) across eleven keys: date added, title, status, type, rating, priority, episode duration, progress, remaining episodes, date modified, and random.
-- **Filtering** — exclude by type, status, priority, rating, or group; show only unrated or unprioritized titles; show only recently released titles (past 7 days). Save and restore named filter presets.
+- **Filtering** — exclude by type, status, priority, rating, or group; show only groups; show only unrated or unprioritized titles; show only recently released titles (past 7 days). Each filter section has an "All" toggle to select/deselect everything at once. Save and restore named filter presets.
 - **Fuzzy search** — instant search across all title names.
 - **Selection mode** — select multiple titles or groups for batch delete or CSV export.
-- **History log** — a second sub-tab records every add, complete, review, and delete action with timestamps (up to 1 000 entries).
 
 ### Dashboard
-- Per-type progress rings or rectangular cards (Anime, Movie, TV Show, etc.) plus a combined Total card.
-- Total time watched and total time remaining, computed from episode counts and durations.
+- Per-type progress rings or rectangular cards (Anime, Movie, TV Show, etc.), plus dedicated **Books** and **Manga** cards fed from the Reading tab (pages/chapters/volumes read of total).
+- A unified card combining **Total**, **Time watched**, and **Time remaining** in three equal segments, computed from episode counts and durations.
 - Library summary: total titles and completed count.
 - Suggestions panel: shortest unwatched title per type, with a random-pick button.
 - Recently watched and recently added sections (last 3 each).
@@ -27,19 +30,40 @@ Track your anime, movies, and TV shows directly inside Obsidian — with episode
 - **Auto-status** — any title added with a future release date is automatically marked "To be released" and added to the Tracker.
 - **Tick button** — mark the current episode as watched and advance the countdown in one click.
 - **Notifications** — desktop notifications fire at the scheduled air time (checked every 60 seconds).
-- **History sub-tab** — shows releases from the past 6 months with relative timestamps.
+- **Reading items** — books and manga from the Reading tab can be scheduled too via the "+ add" finder, shown with Book/Manga badges. A dedicated reading schedule modal tracks chapters and volumes (a single date when there is no total).
+- **Log sub-tab** — shows releases from the past 6 months with relative timestamps.
 - **Maybe sub-tab** — holds titles you are considering for the Tracker; add them when you are ready.
+- **Status bar count** — an optional "N due" indicator with the plugin icon appears in the status bar (hidden when zero); clicking it opens the Upcoming tab.
+
+### Reading
+A separate tracker for books and manga, fully independent from the Watchlist and stored in its own `reading.json`.
+- **Books and Manga sub-tabs** — Books track pages and chapters; Manga track chapters and volumes. Each has its own status set (Reading, Completed, Plan to Read, On Hold, Dropped).
+- **Card grid** — responsive grid of cover cards (Open Library covers for books, Jikan images for manga, or a colored fallback) with status dots, progress bars, and author. ⋮ menu to refresh the cover.
+- **Detail modal** — cover, title, author, status badge, rating, progress editing, an Open-note button, and vault-page controls.
+- **Favorite Quotes** — a Quotes section in the detail modal, parsed from the `## Quotes` section of each item's note file and rendered as callout blocks with page/chapter references; add quotes inline.
+- **Custom fields** — per-sub-tab user-defined columns (text, number, select) with a per-column color picker and Fill or Border display styles, editable inline in the detail modal and managed via a Manage Columns modal.
+- **API-assisted add** — Open Library search for books, Jikan search (or MAL-ID lookup) for manga, auto-filling title, author, page/chapter/volume counts, and cover; plus a release date field with optional API import.
+- **Note files** — auto-generated Markdown at `WatchLog/Reading/Books/[Title].md` or `WatchLog/Reading/Manga/[Title].md` with YAML frontmatter and `## Notes` + `## Quotes` sections, kept in sync on edit.
+- **Fuzzy search, filtering, sorting, and selection mode** — including saved filter presets and batch delete / batch status change.
 
 ### Drafts
 - Monitors your entire vault for a configurable tag (default `#watchlog`).
 - Extracts title names following the tag — supports comma-separated lists on the same line.
 - Shows pending titles (not yet in Watchlist), already-added titles (dimmed), and dismissed titles.
-- One-click "Add" opens the add dialog with the title pre-filled.
+- One-click "Add" opens a choice modal — add to Watchlist, add as a book, or add as manga — each opening the correct dialog with the draft text pre-filled.
+
+### Log
+- A standalone tab with a unified activity timeline for both Watchlist and Reading events.
+- Vertical timeline with colored dots and connector lines, grouped by day with date headers.
+- Action color coding: green (Completed/Watched), blue (Added), red (Deleted), amber (Status/Rating changed).
+- Source filter toolbar: All / Watchlist / Reading. Holds up to 1 000 entries.
 
 ### Custom Lists
 - Create freeform tables stored as Markdown files in your vault.
 - Define custom columns with type (text, number, select), optional bold/italic formatting, and a lock flag to prevent accidental deletion.
-- Edit cells inline or via a modal; drag to reorder columns.
+- Edit cells inline (on both desktop and mobile); drag to reorder columns.
+- **Auto-populate Time column** — any number column can pull remaining watch time (in minutes) from a Watchlist title with an exact name match. Enable via the ⏱ toggle in Edit Columns; values are cached and re-fetched on demand via the ↻ refresh icon in the column header.
+- Name-cell autocomplete searches both Watchlist and Reading items.
 - Each list has a Notes section rendered as Markdown.
 - Pre-configure default columns in settings to apply to every new list.
 
@@ -68,20 +92,27 @@ Widget state syncs bidirectionally with the Watchlist when the sync setting is e
 
 ### API Integration (optional)
 - **Jikan / MyAnimeList** — anime search and metadata, free, no key required.
+- **AniList** — alternative anime source (GraphQL, no key). Toggle between Jikan and AniList in Settings.
 - **OMDb** — movies and TV shows, free API key required. Returns season-by-season episode counts.
 - **TMDB** — movies and TV shows, free API read token required. Alternative to OMDb.
+- **Open Library** — book search and cover art, free, no key required.
+- **API routing by type** — map each custom type to a specific API in Settings; Anime, Movie, and TV Show have locked defaults.
 - **Add from URL** — paste an IMDb link to auto-fill all fields.
 
 ### Import / Export
 - **CSV export** — export selected titles with 13 fields to a timestamped CSV file.
 - **CSV import** — smart column detection, manual mapping, value mapping (status/type/rating), duplicate preview, and auto-creation of new types.
-- **JSON backup** — full data export and restore (with confirmation dialog).
+- **JSON backup** — full export and restore of all three data files (watch, reading, history) via a versioned format, with legacy backups still restorable (with confirmation dialog).
 
 ### Customization
 - Three color themes: Default, Nightfall (purple), Bluez (blue).
 - Fully configurable type, status, and priority tags with custom colors.
 - Configurable season palette colors.
+- Reading colors — color pickers for Manga and Book type badges (Customize → Reading).
+- Manual poster/cover URL override — set your own image in the Edit modal, taking priority over the auto-fetched one.
 - Episode numbering mode: absolute (1→n across all seasons) or per-season (resets each season, display only).
+- Dashboard card style: progress circles or rectangles.
+- "Show hint banners" toggle to hide/show the informational banners in Upcoming, Custom Lists, and Drafts.
 
 ---
 

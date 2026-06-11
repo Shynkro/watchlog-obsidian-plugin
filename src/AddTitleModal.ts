@@ -8,7 +8,7 @@ import type {
 	MediaSearchResult,
 	Season,
 } from './types';
-import { formatDateDisplay, parseDateInput, parseReleaseDateInput } from './types';
+import { formatDateDisplay, parseDateInput, parseReleaseDateInput, getApiGroupForType } from './types';
 
 type SearchResult = AnimeSearchResult | MediaSearchResult;
 
@@ -26,7 +26,9 @@ export class AddTitleModal extends Modal {
 	private searchQuery = '';
 	private searchResults: SearchResult[] = [];
 	private isSearching = false;
+	private searchGeneration = 0;
 	private autoSearch = false;
+	private noApiMessage = '';
 
 	// Editable fields
 	private fieldTitle = '';
@@ -39,6 +41,7 @@ export class AddTitleModal extends Modal {
 	private fieldPriority = 'Medium';
 	private fieldDateStarted = '';
 	private fieldMalId: number | null = null;
+	private fieldAnilistId: number | null = null;
 	private skipDuplicateCheck = false;
 	private duplicateWarningEl: HTMLElement | null = null;
 
@@ -117,6 +120,7 @@ export class AddTitleModal extends Modal {
 		typeSelect.addEventListener('change', () => {
 			this.selectedType = typeSelect.value;
 			this.searchResults = [];
+			this.noApiMessage = '';
 			this.renderResults();
 			this.renderForm();
 		});
@@ -148,28 +152,42 @@ export class AddTitleModal extends Modal {
 
 	private async performSearch(): Promise<void> {
 		if (!this.searchQuery.trim()) return;
+		const gen = ++this.searchGeneration;
 		this.isSearching = true;
 		this.renderResults();
 
 		try {
 			const api = this.plugin.apiService;
 			const activeApi = this.plugin.settings.activeApi ?? 'OMDb';
-			const isAnime = this.selectedType === 'Anime';
+			const apiGroup = getApiGroupForType(this.selectedType, this.plugin.settings.typeApiMapping);
 			const isMovie = this.selectedType === 'Movie';
 
-			if (isAnime) {
-				this.searchResults = await api.searchAnime(this.searchQuery);
+			let results: SearchResult[] = [];
+			let noApi = '';
+			if (apiGroup === '') {
+				noApi = `No API configured for type "${this.selectedType}". Go to Settings → API to set one up.`;
+			} else if (apiGroup === 'anime') {
+				const animeSource = this.plugin.settings.animeApiSource ?? 'jikan';
+				results = animeSource === 'anilist'
+					? await api.searchAniList(this.searchQuery)
+					: await api.searchAnime(this.searchQuery);
 			} else if (activeApi === 'TMDB') {
-				this.searchResults = await api.searchTmdb(this.searchQuery, isMovie ? 'movie' : 'series');
+				results = await api.searchTmdb(this.searchQuery, isMovie ? 'movie' : 'series');
 			} else {
-				this.searchResults = await api.searchOmdb(this.searchQuery, isMovie ? 'movie' : 'series');
+				results = await api.searchOmdb(this.searchQuery, isMovie ? 'movie' : 'series');
 			}
+			if (gen !== this.searchGeneration) return; // stale
+			this.noApiMessage = noApi;
+			this.searchResults = results;
 		} catch {
+			if (gen !== this.searchGeneration) return;
 			new Notice('Search failed. Check your connection and API settings.');
 			this.searchResults = [];
 		} finally {
-			this.isSearching = false;
-			this.renderResults();
+			if (gen === this.searchGeneration) {
+				this.isSearching = false;
+				this.renderResults();
+			}
 		}
 	}
 
@@ -179,6 +197,13 @@ export class AddTitleModal extends Modal {
 
 		if (this.isSearching) {
 			this.resultsEl.createDiv({ cls: 'wl-modal-loading', text: 'Searching...' });
+			return;
+		}
+
+		if (this.noApiMessage) {
+			const msg = this.resultsEl.createDiv({ cls: 'wl-modal-no-api' });
+			msg.createSpan({ cls: 'wl-modal-no-api-icon', text: 'ℹ' });
+			msg.createSpan({ cls: 'wl-modal-no-api-text', text: this.noApiMessage });
 			return;
 		}
 
@@ -204,6 +229,7 @@ export class AddTitleModal extends Modal {
 		}
 		itemEl.addClass('is-selected');
 
+		const gen = ++this.searchGeneration;
 		const api = this.plugin.apiService;
 		const activeApi = this.plugin.settings.activeApi ?? 'OMDb';
 		try {
@@ -211,6 +237,7 @@ export class AddTitleModal extends Modal {
 				const full = activeApi === 'TMDB'
 					? await api.getTmdbTvDetails(result.imdbId)
 					: await api.getOmdbTvDetails(result.imdbId);
+				if (gen !== this.searchGeneration) return;
 				if (full) {
 					this.fieldTitle = full.title;
 					this.fieldEpisodes = full.episodes;
@@ -223,6 +250,7 @@ export class AddTitleModal extends Modal {
 				const full = activeApi === 'TMDB'
 					? await api.getTmdbMovieDetails(result.imdbId)
 					: await api.getOmdbMovieDetails(result.imdbId);
+				if (gen !== this.searchGeneration) return;
 				if (full) {
 					this.fieldTitle = full.title;
 					this.fieldEpisodes = full.episodes;
@@ -239,7 +267,13 @@ export class AddTitleModal extends Modal {
 				this.fieldReleaseDate = anime.releaseDate;
 				this.fieldLink = anime.url;
 				this.fieldSeasons = anime.seasons;
-				this.fieldMalId = anime.malId;
+				if (anime.anilistId && anime.anilistId > 0) {
+					this.fieldAnilistId = anime.anilistId;
+					this.fieldMalId = null;
+				} else {
+					this.fieldMalId = anime.malId;
+					this.fieldAnilistId = null;
+				}
 			}
 		} catch {
 			this.fieldTitle = result.title;
@@ -478,9 +512,10 @@ export class AddTitleModal extends Modal {
 			seasons: this.fieldSeasons,
 			watchedEpisodes: [],
 			...(this.fieldMalId !== null ? { malId: this.fieldMalId } : {}),
+			...(this.fieldAnilistId !== null ? { anilistId: this.fieldAnilistId } : {}),
 		};
 
-		// Bug 3: auto-complete episodes when adding with Completed status
+		// Auto-complete episodes when adding with Completed status
 		if (entry.status === 'Completed' && entry.totalEpisodes > 0) {
 			entry.watchedEpisodes = Array.from({ length: entry.totalEpisodes }, (_, i) => i + 1);
 			if (this.plugin.settings.setFinishDateAutomatically) {
@@ -489,6 +524,17 @@ export class AddTitleModal extends Modal {
 		}
 
 		await this.dataManager.addTitle(entry);
+
+		// Fire-and-forget community rating fetch (no await — non-blocking)
+		void (async () => {
+			const animeSource = this.plugin.settings.animeApiSource ?? 'jikan';
+			const group = getApiGroupForType(entry.type, this.plugin.settings.typeApiMapping);
+			if (group === '') return;
+			const result = await this.plugin.apiService.fetchCommunityRating(entry, animeSource, group);
+			if (result) {
+				this.dataManager.updateCommunityRating(entry.id, result.rating, result.votes, result.source);
+			}
+		})();
 
 		if (this.selectedGroupId) {
 			await this.dataManager.addTitleToGroup(this.selectedGroupId, entry.id);

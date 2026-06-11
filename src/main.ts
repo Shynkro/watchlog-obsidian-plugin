@@ -1,9 +1,12 @@
-import { App, Editor, FuzzySuggestModal, MarkdownView, Notice, Plugin } from 'obsidian';
+import { App, Editor, FuzzySuggestModal, MarkdownView, Notice, Platform, Plugin, setIcon } from 'obsidian';
 import { DEFAULT_SETTINGS, WatchLogPluginSettings, AirtimeSchedule } from './types';
 import { DataManager } from './DataManager';
+import { ReadingDataManager } from './ReadingDataManager';
 import { ApiService } from './ApiService';
 import { HistoryManager } from './HistoryManager';
-import { WatchLogView, WATCHLOG_VIEW_TYPE } from './WatchLogView';
+import { PosterService } from './PosterService';
+import { WatchLogView, WATCHLOG_VIEW_TYPE, TabName } from './WatchLogView';
+import { AirtimeTab } from './AirtimeTab';
 import { WatchLogSettingsTab } from './SettingsTab';
 import { AddTitleModal } from './AddTitleModal';
 import { InsertWidgetModal } from './InsertWidgetModal';
@@ -12,8 +15,11 @@ import { WidgetRenderer } from './WidgetRenderer';
 export default class WatchLogPlugin extends Plugin {
 	settings: WatchLogPluginSettings = DEFAULT_SETTINGS;
 	dataManager: DataManager = new DataManager(this);
+	readingDataManager: ReadingDataManager = new ReadingDataManager(this);
 	apiService: ApiService = new ApiService('', '');
 	historyManager: HistoryManager = new HistoryManager(this);
+	posterService!: PosterService;
+	widgetRenderer?: WidgetRenderer;
 
 	// Runtime import progress state (not persisted)
 	importProgress: { current: number; total: number; cancel: () => void } | null = null;
@@ -21,30 +27,37 @@ export default class WatchLogPlugin extends Plugin {
 	// Track which entry+day combos have already fired a notification
 	private notifiedEntries: Set<string> = new Set();
 
+	// Status-bar Upcoming "due" counter (desktop only; null on mobile)
+	private statusBarEl: HTMLElement | null = null;
+
 	async onload(): Promise<void> {
-		// Load settings first, then data
 		await this.loadSettings();
 		this.dataManager = new DataManager(this);
 		await this.dataManager.load();
 		this.dataManager.startWatchingExternalChanges();
-		this.apiService = new ApiService(this.settings.omdbApiKey, this.settings.tmdbApiKey);
+
+		this.readingDataManager = new ReadingDataManager(this);
+		await this.readingDataManager.load();
+
+		this.apiService = new ApiService(this.settings.omdbApiKey, this.settings.tmdbApiKey, this.settings.googleBooksApiKey);
 		this.historyManager = new HistoryManager(this);
 		await this.historyManager.load();
 		this.dataManager.setHistoryManager(this.historyManager);
+		this.readingDataManager.setHistoryManager(this.historyManager);
 
-		// Ensure vault folders exist
+		this.posterService = new PosterService(
+			this.dataManager,
+			() => this.settings,
+		);
+
 		await this.dataManager.ensureFolders();
-
-		// Start the airtime notification scheduler (checks every 60 seconds)
 		this.startAirtimeScheduler();
 
-		// Register the sidebar view
 		this.registerView(WATCHLOG_VIEW_TYPE, (leaf) => {
 			return new WatchLogView(leaf, this, this.dataManager);
 		});
 
-		// Register the inline widget code block processor
-		new WidgetRenderer(this, this.dataManager);
+		this.widgetRenderer = new WidgetRenderer(this, this.dataManager);
 
 		// Ribbon icon
 		this.addRibbonIcon('tv', 'Watchlog', () => {
@@ -94,14 +107,29 @@ export default class WatchLogPlugin extends Plugin {
 
 		// Settings tab
 		this.addSettingTab(new WatchLogSettingsTab(this.app, this));
+
+		// Status-bar Upcoming "due" counter
+		this.setupStatusBar();
+		// Keep the status bar in sync with data edits (no new timer — the 60s
+		// airtime interval drives the time-based refresh). 'watchlog-data-changed'
+		// is a custom event, so register the listener directly (like WidgetRenderer).
+		const statusBarListener = (): void => this.updateStatusBar();
+		activeDocument.addEventListener('watchlog-data-changed', statusBarListener);
+		this.register(() => activeDocument.removeEventListener('watchlog-data-changed', statusBarListener));
 	}
 
 	onunload(): void {
-		
+		// Synchronously flush any pending debounced saves so no in-memory edits are lost.
+		this.dataManager.flushPendingSaveSync();
+		this.dataManager.flushPosterSaveSync();
+		this.dataManager.flushQueuedSaveSync();
+		this.readingDataManager?.flushCoverSave();
+		this.posterService?.destroy();
+		this.widgetRenderer?.cleanup();
+
 	}
 
 	private startAirtimeScheduler(): void {
-		// Check immediately on startup, then every 60 seconds
 		this.checkAirtimeNotifications();
 		this.registerInterval(window.setInterval(() => {
 			this.checkAirtimeNotifications();
@@ -134,21 +162,74 @@ export default class WatchLogPlugin extends Plugin {
 			if (this.notifiedEntries.has(notifKey)) continue;
 			this.notifiedEntries.add(notifKey);
 
-			const title = this.dataManager.getTitle(entry.titleId);
-			if (!title) continue;
-			new Notice(title.title, 8000);
+			// Resolve the entry's subject — a watch title or a reading item.
+			let name: string;
+			let maxUnits: number;
+			if (entry.source === 'reading') {
+				const kind = entry.readingKind ?? 'book';
+				const item = kind === 'book'
+					? this.readingDataManager.getBook(entry.titleId)
+					: this.readingDataManager.getManga(entry.titleId);
+				if (!item) continue;
+				name = item.title;
+				maxUnits = entry.totalEpisodes ?? item.totalChapters ?? 0;
+			} else {
+				const title = this.dataManager.getTitle(entry.titleId);
+				if (!title) continue;
+				name = title.title;
+				maxUnits = entry.totalEpisodes ?? title.totalEpisodes;
+			}
+			new Notice(name, 8000);
 
-			// Auto-increment episode for series/anime
-			if ((title.totalEpisodes ?? 0) > 1 && entry.currentEpisode !== undefined) {
-				const maxEps = entry.totalEpisodes ?? title.totalEpisodes;
+			// Auto-increment the unit (episode/chapter) for multi-part titles
+			if (maxUnits > 1 && entry.currentEpisode !== undefined) {
 				const nextEp = entry.currentEpisode + 1;
-				if (nextEp <= maxEps) {
+				if (nextEp <= maxUnits) {
 					entry.currentEpisode = nextEp;
 					void this.dataManager.updateAirtimeEntry(entry);
 				}
-				// If final episode: leave in Upcoming, you handle via tick button
+				// If final unit: leave in Upcoming, you handle via tick button
 			}
 		}
+
+		// The due count is time-based, so refresh the status bar on every tick.
+		this.updateStatusBar();
+	}
+
+	// ── Status bar: Upcoming "due" counter ──────────────────────────────────────
+	private setupStatusBar(): void {
+		// The status bar doesn't exist on mobile — skip entirely there.
+		if (Platform.isMobile) return;
+		this.statusBarEl = this.addStatusBarItem();
+		this.statusBarEl.addClass('wl-statusbar-upcoming');
+		this.statusBarEl.style.cursor = 'pointer';
+		this.statusBarEl.setAttribute('aria-label', 'WatchLog — Upcoming due');
+		this.statusBarEl.addEventListener('click', () => void this.activateView('upcoming'));
+		this.updateStatusBar();
+	}
+
+	/** Refreshes the status-bar Upcoming counter. Hidden when off or when 0 due. */
+	updateStatusBar(): void {
+		const el = this.statusBarEl;
+		if (!el) return;
+		if (!this.settings.showUpcomingStatusBar) {
+			el.hide();
+			return;
+		}
+		const count =
+			AirtimeTab.getAiredDueCount(this.dataManager, this.readingDataManager) +
+			AirtimeTab.getMaybeDueCount(this.dataManager);
+		if (count <= 0) {
+			el.hide();
+			return;
+		}
+		el.empty();
+		el.show();
+		// Orange icon + "N due" — reuse the ribbon's 'tv' icon.
+		el.style.color = 'var(--color-orange)';
+		const icon = el.createSpan({ cls: 'wl-statusbar-icon' });
+		setIcon(icon, 'tv');
+		el.createSpan({ cls: 'wl-statusbar-text', text: `${count} due` });
 	}
 
 	/**
@@ -180,7 +261,7 @@ export default class WatchLogPlugin extends Plugin {
 
 	async loadSettings(): Promise<void> {
 		const saved = (await this.loadData()) as {
-			settings?: Partial<WatchLogPluginSettings> & { defaultView?: string };
+			settings?: Partial<WatchLogPluginSettings>;
 		} | null;
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, saved?.settings ?? {});
 		if (saved?.settings?.listFilters) {
@@ -190,9 +271,26 @@ export default class WatchLogPlugin extends Plugin {
 				saved.settings.listFilters,
 			);
 		}
-		// Migrate old defaultView value 'list' → 'watchlist'
-		if ((this.settings.defaultView as string) === 'list') {
-			this.settings.defaultView = 'watchlist';
+		if (this.settings.animeApiSource === undefined) {
+			this.settings.animeApiSource = 'jikan';
+		}
+		if (this.settings.typeApiMapping === undefined) {
+			this.settings.typeApiMapping = {};
+		}
+		// Reading type badge colors (Manga / Book) — backfill defaults for old installs.
+		if (!this.settings.readingTypeColors) {
+			this.settings.readingTypeColors = { manga: '#D4537E', book: '#D85A30' };
+		} else {
+			if (!this.settings.readingTypeColors.manga) this.settings.readingTypeColors.manga = '#D4537E';
+			if (!this.settings.readingTypeColors.book) this.settings.readingTypeColors.book = '#D85A30';
+		}
+		// Default for the defaultWatchlistView setting (Cards)
+		if (this.settings.defaultWatchlistView !== 'list' && this.settings.defaultWatchlistView !== 'cards') {
+			this.settings.defaultWatchlistView = 'cards';
+		}
+		// Backfill the status-bar Upcoming counter toggle for existing installs (default ON).
+		if (this.settings.showUpcomingStatusBar === undefined) {
+			this.settings.showUpcomingStatusBar = true;
 		}
 		// Ensure array fields are never undefined after a partial merge
 		if (!this.settings.types?.length) this.settings.types = DEFAULT_SETTINGS.types;
@@ -213,8 +311,7 @@ export default class WatchLogPlugin extends Plugin {
 	}
 
 	async saveSettings(): Promise<void> {
-		const current = ((await this.loadData()) as Record<string, unknown> | null) ?? {};
-		await this.saveData({ ...current, settings: this.settings });
+		await this.dataManager.saveSettings(this.settings);
 	}
 
 	private openWidgetPalette(editor: Editor): void {
@@ -263,18 +360,21 @@ export default class WatchLogPlugin extends Plugin {
 		}).open();
 	}
 
-	private async activateView(): Promise<void> {
+	private async activateView(tab?: TabName): Promise<void> {
 		const { workspace } = this.app;
 
 		const existing = workspace.getLeavesOfType(WATCHLOG_VIEW_TYPE);
 		if (existing.length > 0) {
-			void workspace.revealLeaf(existing[0]!);
+			const leaf = existing[0]!;
+			void workspace.revealLeaf(leaf);
+			if (tab && leaf.view instanceof WatchLogView) leaf.view.setActiveTab(tab);
 			return;
 		}
 
 		const leaf = workspace.getLeaf('tab');
 		await leaf.setViewState({ type: WATCHLOG_VIEW_TYPE, active: true });
 		void workspace.revealLeaf(leaf);
+		if (tab && leaf.view instanceof WatchLogView) leaf.view.setActiveTab(tab);
 	}
 }
 

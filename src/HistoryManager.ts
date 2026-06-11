@@ -1,10 +1,16 @@
 import { normalizePath } from 'obsidian';
 import type WatchLogPlugin from './main';
 
+export type HistorySource = 'Watchlist' | 'Reading';
+export type HistoryAction = 'added' | 'completed' | 'deleted' | 'status' | 'rating' | 'watched';
+
 export interface HistoryEntry {
 	id: string;
 	timestamp: string;
 	message: string;
+	source?: HistorySource;
+	action?: HistoryAction;
+	titleName?: string;
 }
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -41,16 +47,23 @@ export class HistoryManager {
 				const parsed = JSON.parse(raw) as { entries?: HistoryEntry[] };
 				this.entries = Array.isArray(parsed.entries) ? parsed.entries : [];
 			}
-		} catch {
+		} catch (e) {
+			console.warn('[WL] HistoryManager.load failed:', e);
 			this.entries = [];
 		}
 	}
 
-	async log(message: string): Promise<void> {
+	async log(
+		message: string,
+		meta?: { source?: HistorySource; action?: HistoryAction; titleName?: string },
+	): Promise<void> {
 		const entry: HistoryEntry = {
 			id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
 			timestamp: new Date().toISOString(),
 			message,
+			source: meta?.source,
+			action: meta?.action,
+			titleName: meta?.titleName,
 		};
 		this.entries.push(entry);
 		if (this.entries.length > this.MAX_ENTRIES) {
@@ -61,6 +74,18 @@ export class HistoryManager {
 
 	getEntries(): HistoryEntry[] {
 		return [...this.entries].reverse();
+	}
+
+	/** Raw stored entries (oldest-first), for inclusion in a full backup. */
+	exportEntries(): HistoryEntry[] {
+		return [...this.entries];
+	}
+
+	/** Replace the entire audit log (used by full-snapshot restore). */
+	async restore(entries: HistoryEntry[]): Promise<void> {
+		const list = Array.isArray(entries) ? entries : [];
+		this.entries = list.length > this.MAX_ENTRIES ? list.slice(-this.MAX_ENTRIES) : list;
+		await this.save();
 	}
 
 	private async save(): Promise<void> {

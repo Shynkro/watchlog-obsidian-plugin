@@ -66,31 +66,34 @@ export class AddFromUrlModal extends Modal {
 		}
 		if (this.errorEl) this.errorEl.hide();
 
-		const result = this.plugin.settings.activeApi === 'TMDB'
-			? await this.plugin.apiService.getTmdbByImdbId(imdbId)
-			: await this.plugin.apiService.getOmdbByImdbId(imdbId);
+		try {
+			const result = this.plugin.settings.activeApi === 'TMDB'
+				? await this.plugin.apiService.getTmdbByImdbId(imdbId)
+				: await this.plugin.apiService.getOmdbByImdbId(imdbId);
 
-		if (!result) {
+			if (!result) {
+				this.showError('Title not found. Please check the URL and try again.');
+				return;
+			}
+
+			this.close();
+
+			const type = result.mediaType === 'movie' ? 'Movie' : 'TV Show';
+			new AddTitleModal(this.app, this.plugin, this.dataManager, this.onAdded, {
+				title: result.title,
+				type,
+				episodes: result.episodes,
+				duration: result.episodeDuration,
+				releaseDate: result.releaseDate,
+				link: result.url,
+				seasons: result.seasons,
+			}).open();
+		} finally {
 			if (this.addBtn) {
 				this.addBtn.disabled = false;
 				this.addBtn.textContent = 'Add';
 			}
-			this.showError('Title not found. Please check the URL and try again.');
-			return;
 		}
-
-		this.close();
-
-		const type = result.mediaType === 'movie' ? 'Movie' : 'TV Show';
-		new AddTitleModal(this.app, this.plugin, this.dataManager, this.onAdded, {
-			title: result.title,
-			type,
-			episodes: result.episodes,
-			duration: result.episodeDuration,
-			releaseDate: result.releaseDate,
-			link: result.url,
-			seasons: result.seasons,
-		}).open();
 	}
 
 	private showError(msg: string): void {

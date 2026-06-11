@@ -1,8 +1,16 @@
 import { App, TFile, normalizePath } from 'obsidian';
 import type WatchLogPlugin from './main';
-import type { WatchLogData, WatchLogTitle, WatchLogGroup, AirtimeEntry, MaybeTitle, SavedFilterPreset } from './types';
+import type { WatchLogData, WatchLogTitle, WatchLogGroup, AirtimeEntry, MaybeTitle, SavedFilterPreset, WatchLogPluginSettings, Book, Manga } from './types';
 import type { HistoryManager } from './HistoryManager';
 import { formatHistoryDate } from './HistoryManager';
+
+function isValidWatchLogData(data: unknown): data is WatchLogData {
+	return (
+		data !== null &&
+		typeof data === 'object' &&
+		Array.isArray((data as { titles?: unknown }).titles)
+	);
+}
 
 export class DataManager {
 	private plugin: WatchLogPlugin;
@@ -10,6 +18,25 @@ export class DataManager {
 	private data: WatchLogData;
 	private changeListeners: Array<() => void> = [];
 	private historyManager: HistoryManager | null = null;
+	// Debounced save state for high-frequency edits (e.g. rapid episode clicks).
+	// In-memory mutations are applied immediately; the disk write coalesces.
+	private pendingSaveTimer: number | null = null;
+	private pendingMdTitleIds: Set<string> = new Set();
+	private readonly EPISODE_SAVE_DEBOUNCE_MS = 500;
+	// Timestamp of the last self-initiated saveOnly. The 'raw' file watcher uses
+	// this to ignore the echo of our own writes, which otherwise would re-load
+	// data.json and notify listeners on every debounced episode-click save.
+	private lastSelfSaveTime = 0;
+	private readonly SELF_SAVE_ECHO_WINDOW_MS = 2000;
+
+	// Debounced batched save for poster URL updates. Updates land in memory
+	// immediately; the disk write coalesces to ~once every 5s.
+	private posterSaveTimer: number | null = null;
+	private readonly POSTER_SAVE_DEBOUNCE_MS = 5000;
+
+	// Generic queued-save debounce for cross-cutting saves (settings, drafts, lists)
+	private queuedSaveTimer: number | null = null;
+	private readonly QUEUED_SAVE_DEBOUNCE_MS = 100;
 
 	setHistoryManager(hm: HistoryManager): void {
 		this.historyManager = hm;
@@ -22,38 +49,41 @@ export class DataManager {
 	}
 
 	async load(): Promise<void> {
-		const loaded = (await this.plugin.loadData()) as WatchLogData | null;
-		if (loaded) {
-			this.data = loaded;
-		} else {
-			this.data = { titles: [], groups: [], settings: {} };
+		const raw: unknown = await this.plugin.loadData();
+		this.data = isValidWatchLogData(raw)
+			? raw
+			: { titles: [], groups: [], settings: {} };
+		const changed = this.migrateData();
+		if (changed) {
+			await this.saveOnly();
 		}
-		this.migrateData();
 	}
 
-	private migrateData(): void {
-		// Ensure core arrays exist (data.json may be missing or partial on first install)
+	private migrateData(): boolean {
+		let changed = false;
 		if (!Array.isArray(this.data.titles)) {
 			this.data.titles = [];
+			changed = true;
 		}
 		if (!Array.isArray((this.data as unknown as Record<string, unknown>)['groups'])) {
 			this.data.groups = [];
+			changed = true;
 		}
 
-		// Ensure airtime array exists
 		if (!Array.isArray(this.data.airtime)) {
 			this.data.airtime = [];
+			changed = true;
 		}
 
 		for (const title of this.data.titles) {
-			// Ensure dateAdded is a full ISO timestamp (old data may be date-only "YYYY-MM-DD")
 			if (!title.dateAdded) {
 				title.dateAdded = new Date().toISOString();
+				changed = true;
 			} else if (!title.dateAdded.includes('T')) {
 				title.dateAdded = new Date(title.dateAdded).toISOString();
+				changed = true;
 			}
 
-			// Migrate lastInteracted → dateModified
 			if (!title.dateModified) {
 				const raw = title as unknown as Record<string, unknown>;
 				const lastInteracted = raw['lastInteracted'];
@@ -62,17 +92,192 @@ export class DataManager {
 				} else {
 					title.dateModified = title.dateAdded;
 				}
+				changed = true;
 			}
+
+			for (const season of (title.seasons ?? [])) {
+				if (!Array.isArray(season.skippedEpisodes)) {
+					season.skippedEpisodes = [];
+					changed = true;
+				}
+			}
+
+			if (title.posterUrl === undefined) { title.posterUrl = ''; changed = true; }
+			if (title.manualPosterUrl === undefined) { title.manualPosterUrl = ''; changed = true; }
+			if (title.anilistId === undefined) { title.anilistId = 0; changed = true; }
+			if (title.communityRating === undefined) { title.communityRating = 0; changed = true; }
+			if (title.communityVotes === undefined) { title.communityVotes = 0; changed = true; }
+			if (title.communitySource === undefined) { title.communitySource = ''; changed = true; }
+			if (title.communityRatingLastFetched === undefined) { title.communityRatingLastFetched = ''; changed = true; }
+		}
+
+		if (!this.data.posterRetryDone) {
+			for (const title of this.data.titles) {
+				if (title.posterUrl === 'none') {
+					title.posterUrl = '';
+				}
+			}
+			this.data.posterRetryDone = true;
+			changed = true;
+		}
+		return changed;
+	}
+
+	/**
+	 * Silent poster URL update. Writes the value in memory and schedules a
+	 * debounced disk save (5s). Does NOT notify listeners — the card that
+	 * triggered the fetch updates its own <img> directly.
+	 */
+	updatePosterUrl(titleId: string, url: string): void {
+		const title = this.data.titles.find((t) => t.id === titleId);
+		if (title) {
+			title.posterUrl = url;
+			this.schedulePosterSave();
 		}
 	}
 
+	/**
+	 * Silent community-rating update. Writes the values in memory and saves
+	 * to disk without notifying listeners — the caller is responsible for
+	 * any targeted UI refresh.
+	 */
+	updateCommunityRating(
+		id: string,
+		rating: number,
+		votes: number,
+		source: '' | 'imdb' | 'mal' | 'anilist' | 'tmdb',
+	): void {
+		const title = this.data.titles.find((t) => t.id === id);
+		if (!title) return;
+		title.communityRating = rating;
+		title.communityVotes = votes;
+		title.communitySource = source;
+		title.communityRatingLastFetched = new Date().toISOString();
+		void this.saveOnly();
+	}
+
+	private schedulePosterSave(): void {
+		if (this.posterSaveTimer !== null) return;
+		this.posterSaveTimer = window.setTimeout(() => {
+			this.posterSaveTimer = null;
+			void this.saveOnly();
+		}, this.POSTER_SAVE_DEBOUNCE_MS);
+	}
+
+	/** Flush a pending debounced poster save now (e.g. on plugin unload). */
+	flushPosterSave(): void {
+		if (this.posterSaveTimer !== null) {
+			window.clearTimeout(this.posterSaveTimer);
+			this.posterSaveTimer = null;
+			void this.saveOnly();
+		}
+	}
+
+	/** Synchronously flush a pending poster save during plugin unload. */
+	flushPosterSaveSync(): void {
+		if (this.posterSaveTimer !== null) {
+			window.clearTimeout(this.posterSaveTimer);
+			this.posterSaveTimer = null;
+			this.lastSelfSaveTime = Date.now();
+			void this.plugin.saveData(this.data);
+		}
+	}
+
+	/** Public access to the full in-memory data snapshot. */
+	getData(): WatchLogData {
+		return this.data;
+	}
+
+	/** Centralized debounced save for cross-cutting paths (settings, drafts, lists). */
+	queueSave(): void {
+		if (this.queuedSaveTimer !== null) {
+			window.clearTimeout(this.queuedSaveTimer);
+		}
+		this.queuedSaveTimer = window.setTimeout(() => {
+			this.queuedSaveTimer = null;
+			void this.saveOnly();
+		}, this.QUEUED_SAVE_DEBOUNCE_MS);
+	}
+
+	flushQueuedSaveSync(): void {
+		if (this.queuedSaveTimer !== null) {
+			window.clearTimeout(this.queuedSaveTimer);
+			this.queuedSaveTimer = null;
+			this.lastSelfSaveTime = Date.now();
+			void this.plugin.saveData(this.data);
+		}
+	}
+
+	/** Save settings through the centralized data path. */
+	async saveSettings(settings: WatchLogPluginSettings): Promise<void> {
+		this.data.settings = settings;
+		await this.saveOnly();
+	}
+
 	private async saveOnly(): Promise<void> {
+		this.lastSelfSaveTime = Date.now();
 		await this.plugin.saveData(this.data);
+		this.lastSelfSaveTime = Date.now();
 	}
 
 	async save(): Promise<void> {
+		// An immediate save supersedes any pending debounced one — the in-memory
+		// state already contains those changes.
+		if (this.pendingSaveTimer !== null) {
+			window.clearTimeout(this.pendingSaveTimer);
+			this.pendingSaveTimer = null;
+			this.pendingMdTitleIds.clear();
+		}
 		await this.saveOnly();
 		this.notifyListeners();
+	}
+
+	/**
+	 * Schedule a debounced silent save (no listener notification, no full re-render).
+	 * Subsequent calls within the debounce window reset the timer. Callers are
+	 * responsible for any targeted DOM updates.
+	 */
+	scheduleEpisodeSave(titleIdForMd: string): void {
+		this.pendingMdTitleIds.add(titleIdForMd);
+		if (this.pendingSaveTimer !== null) {
+			window.clearTimeout(this.pendingSaveTimer);
+		}
+		this.pendingSaveTimer = window.setTimeout(() => {
+			void this.flushPendingSave();
+		}, this.EPISODE_SAVE_DEBOUNCE_MS);
+	}
+
+	/** Flush a pending debounced save now (e.g. on view close / plugin unload). */
+	async flushPendingSave(): Promise<void> {
+		if (this.pendingSaveTimer !== null) {
+			window.clearTimeout(this.pendingSaveTimer);
+			this.pendingSaveTimer = null;
+		}
+		if (this.pendingMdTitleIds.size === 0) return;
+		const ids = Array.from(this.pendingMdTitleIds);
+		this.pendingMdTitleIds.clear();
+		await this.saveOnly();
+		for (const id of ids) {
+			const t = this.getTitle(id);
+			if (t) await this.updateMarkdownFile(t);
+		}
+	}
+
+	/** Synchronously flush a pending episode-save during plugin unload (no awaits). */
+	flushPendingSaveSync(): void {
+		if (this.pendingSaveTimer !== null) {
+			window.clearTimeout(this.pendingSaveTimer);
+			this.pendingSaveTimer = null;
+		}
+		if (this.pendingMdTitleIds.size === 0) return;
+		const ids = Array.from(this.pendingMdTitleIds);
+		this.pendingMdTitleIds.clear();
+		this.lastSelfSaveTime = Date.now();
+		void this.plugin.saveData(this.data);
+		for (const id of ids) {
+			const t = this.getTitle(id);
+			if (t) void this.updateMarkdownFile(t);
+		}
 	}
 
 	getTitles(): WatchLogTitle[] {
@@ -95,7 +300,10 @@ export class DataManager {
 		}
 		await this.updateMarkdownFile(title);
 		const now = new Date().toISOString();
-		void this.historyManager?.log(`${title.title} (${title.type}) was added on ${formatHistoryDate(now)}`);
+		void this.historyManager?.log(
+			`${title.title} (${title.type}) was added on ${formatHistoryDate(now)}`,
+			{ source: 'Watchlist', action: 'added', titleName: title.title },
+		);
 	}
 
 	/** Add without triggering a UI re-render. Caller must call notifyChange() after the batch. */
@@ -112,6 +320,42 @@ export class DataManager {
 		await this.updateMarkdownFile(title);
 	}
 
+	/** Batch-add: push all titles into memory, save once, then write all MD files. */
+	async addTitleBatch(titles: WatchLogTitle[]): Promise<void> {
+		const upcoming: WatchLogTitle[] = [];
+		for (const title of titles) {
+			if (this.canAutoAddToUpcoming(title)) {
+				title.status = 'To be released';
+				upcoming.push(title);
+			}
+			this.data.titles.push(title);
+		}
+		await this.saveOnly();
+		for (const title of upcoming) {
+			await this.autoAddToUpcoming(title);
+		}
+		for (const title of titles) {
+			await this.updateMarkdownFile(title);
+		}
+	}
+
+	/** Batch-update via mutator. Single save + single notify; MD files updated. */
+	async batchUpdate(ids: string[], mutator: (t: WatchLogTitle) => void): Promise<void> {
+		const updated: WatchLogTitle[] = [];
+		for (const id of ids) {
+			const t = this.getTitle(id);
+			if (!t) continue;
+			mutator(t);
+			t.dateModified = new Date().toISOString();
+			updated.push(t);
+		}
+		if (updated.length === 0) return;
+		await this.save();
+		for (const t of updated) {
+			await this.updateMarkdownFile(t);
+		}
+	}
+
 	/** Remove multiple titles in one batch: single save, MD files deleted in chunks of 10. */
 	async removeTitlesBatch(ids: string[]): Promise<void> {
 		const CHUNK_SIZE = 10;
@@ -125,7 +369,7 @@ export class DataManager {
 				group.titleIds = group.titleIds.filter((tid) => tid !== id);
 			}
 			if (this.data.airtime) {
-				this.data.airtime = this.data.airtime.filter((e) => e.titleId !== id);
+				this.data.airtime = this.data.airtime.filter((e) => e.titleId !== id || e.source === 'reading');
 			}
 			const d = this.data as unknown as Record<string, unknown>;
 			if (d['collapsedSeasons']) {
@@ -172,24 +416,77 @@ export class DataManager {
 	/** Remove all Upcoming entries for a given title (e.g. when date goes past). */
 	async removeAirtimeEntriesForTitle(titleId: string): Promise<void> {
 		const before = (this.data.airtime ?? []).length;
-		this.data.airtime = (this.data.airtime ?? []).filter((e) => e.titleId !== titleId);
+		this.data.airtime = (this.data.airtime ?? []).filter((e) => e.titleId !== titleId || e.source === 'reading');
 		if ((this.data.airtime ?? []).length !== before) {
 			await this.save();
 		}
 	}
 
+	// ── Reading → Upcoming bridge ──────────────────────────────────────────────────
+	// Reading items (Book/Manga) live in reading.json, but their Upcoming entries
+	// share the same airtime list as watch titles — mirroring autoAddToUpcoming.
+
+	/**
+	 * Auto-adds a reading item with a future release date to Upcoming, mirroring
+	 * the watchlist `autoAddToUpcoming`. No-op if an entry already exists.
+	 */
+	async autoAddReadingToUpcoming(item: Book | Manga, kind: 'book' | 'manga'): Promise<void> {
+		if (!this.data.airtime) this.data.airtime = [];
+		if (this.data.airtime.some((e) => e.source === 'reading' && e.titleId === item.id)) return;
+		const entry: AirtimeEntry = {
+			id: this.generateReadingAirtimeId(item.id),
+			titleId: item.id,
+			source: 'reading',
+			readingKind: kind,
+			schedule: {
+				recurrence: 'once',
+				releaseDate: item.releaseDate ?? undefined,
+			},
+			dateAdded: new Date().toISOString(),
+		};
+		this.data.airtime.push(entry);
+		await this.plugin.saveData(this.data);
+	}
+
+	/** Remove all Upcoming entries for a given reading item (book/manga id). */
+	async removeReadingAirtimeEntries(itemId: string): Promise<void> {
+		const before = (this.data.airtime ?? []).length;
+		this.data.airtime = (this.data.airtime ?? []).filter(
+			(e) => !(e.source === 'reading' && e.titleId === itemId),
+		);
+		if ((this.data.airtime ?? []).length !== before) {
+			await this.save();
+		}
+	}
+
+	generateReadingAirtimeId(itemId: string): string {
+		const base = `airtime-reading-${itemId}`;
+		const existing = (this.data.airtime ?? []).map((e) => e.id);
+		if (!existing.includes(base)) return base;
+		let counter = 2;
+		while (existing.includes(`${base}-${counter}`)) counter++;
+		return `${base}-${counter}`;
+	}
+
 	async updateTitle(updated: WatchLogTitle): Promise<void> {
 		updated.dateModified = new Date().toISOString();
+		if (updated.status === 'Completed') {
+			updated.priority = '';
+		}
 		const idx = this.data.titles.findIndex((t) => t.id === updated.id);
 		if (idx >= 0) {
 			const old = this.data.titles[idx]!;
 			const now = new Date().toISOString();
 			if (old.rating !== updated.rating) {
-				void this.historyManager?.log(`${updated.title} (${updated.type}) was reviewed on ${formatHistoryDate(now)}`);
+				void this.historyManager?.log(
+					`${updated.title} (${updated.type}) was reviewed on ${formatHistoryDate(now)}`,
+					{ source: 'Watchlist', action: 'rating', titleName: updated.title },
+				);
 			}
 			if (old.status !== updated.status && updated.status === 'Completed') {
 				void this.historyManager?.log(
-					`${updated.title} (${updated.type}) was marked as watched on ${formatHistoryDate(now)}`
+					`${updated.title} (${updated.type}) was marked as watched on ${formatHistoryDate(now)}`,
+					{ source: 'Watchlist', action: 'completed', titleName: updated.title },
 				);
 			}
 			this.data.titles[idx] = updated;
@@ -198,11 +495,42 @@ export class DataManager {
 		}
 	}
 
+	/** Update without saving or notifying listeners. Caller must call
+	 * save() (or saveOnly + notifyChange) once after the batch completes,
+	 * and is responsible for updating the markdown file per title if needed. */
+	updateTitleSilent(updated: WatchLogTitle): void {
+		updated.dateModified = new Date().toISOString();
+		if (updated.status === 'Completed') {
+			updated.priority = '';
+		}
+		const idx = this.data.titles.findIndex((t) => t.id === updated.id);
+		if (idx >= 0) {
+			const old = this.data.titles[idx]!;
+			const now = new Date().toISOString();
+			if (old.rating !== updated.rating) {
+				void this.historyManager?.log(
+					`${updated.title} (${updated.type}) was reviewed on ${formatHistoryDate(now)}`,
+					{ source: 'Watchlist', action: 'rating', titleName: updated.title },
+				);
+			}
+			if (old.status !== updated.status && updated.status === 'Completed') {
+				void this.historyManager?.log(
+					`${updated.title} (${updated.type}) was marked as watched on ${formatHistoryDate(now)}`,
+					{ source: 'Watchlist', action: 'completed', titleName: updated.title },
+				);
+			}
+			this.data.titles[idx] = updated;
+		}
+	}
+
 	async removeTitle(id: string): Promise<void> {
 		const title = this.getTitle(id);
 		if (title) {
 			const now = new Date().toISOString();
-			void this.historyManager?.log(`${title.title} (${title.type}) was deleted on ${formatHistoryDate(now)}`);
+			void this.historyManager?.log(
+				`${title.title} (${title.type}) was deleted on ${formatHistoryDate(now)}`,
+				{ source: 'Watchlist', action: 'deleted', titleName: title.title },
+			);
 		}
 		this.data.titles = this.data.titles.filter((t) => t.id !== id);
 		// Remove from any groups
@@ -211,7 +539,7 @@ export class DataManager {
 		}
 		// Remove airtime entries for this title
 		if (this.data.airtime) {
-			this.data.airtime = this.data.airtime.filter((e) => e.titleId !== id);
+			this.data.airtime = this.data.airtime.filter((e) => e.titleId !== id || e.source === 'reading');
 		}
 		// Remove collapsed seasons for this title
 		const d = this.data as unknown as Record<string, unknown>;
@@ -333,6 +661,13 @@ export class DataManager {
 		await this.save();
 	}
 
+	async removeAirtimeEntriesBatch(ids: string[]): Promise<void> {
+		if (ids.length === 0) return;
+		const removeSet = new Set(ids);
+		this.data.airtime = (this.data.airtime ?? []).filter((e) => !removeSet.has(e.id));
+		await this.save();
+	}
+
 	// ── Maybe CRUD ────────────────────────────────────────────────────────────────
 
 	getMaybeTitles(): MaybeTitle[] {
@@ -378,7 +713,7 @@ export class DataManager {
 			return title.watchedEpisodes.includes(1) ? title.episodeDuration : 0;
 		}
 		if (title.status === 'Completed') {
-			return title.totalEpisodes * title.episodeDuration;
+			return this.getEffectiveTotal(title) * title.episodeDuration;
 		}
 		// Watching, Dropped, Plan to watch: only watched episodes
 		return title.watchedEpisodes.length * title.episodeDuration;
@@ -392,12 +727,12 @@ export class DataManager {
 		if (title.type === 'Movie') {
 			return title.watchedEpisodes.includes(1) ? 0 : title.episodeDuration;
 		}
+		const effective = this.getEffectiveTotal(title);
 		if (title.status === 'Plan to watch') {
-			return Math.max(0, title.totalEpisodes - title.watchedEpisodes.length) * title.episodeDuration;
+			return Math.max(0, effective - title.watchedEpisodes.length) * title.episodeDuration;
 		}
 		if (title.status === 'Watching') {
-			const unwatched = Math.max(0, title.totalEpisodes - title.watchedEpisodes.length);
-			return unwatched * title.episodeDuration;
+			return Math.max(0, effective - title.watchedEpisodes.length) * title.episodeDuration;
 		}
 		// Completed or other: 0
 		return 0;
@@ -409,14 +744,15 @@ export class DataManager {
 		if (title.type === 'Movie') {
 			return title.watchedEpisodes.includes(1) ? 0 : title.episodeDuration;
 		}
+		const effective = this.getEffectiveTotal(title);
 		if (title.status === 'Dropped') {
-			return Math.max(0, title.totalEpisodes - title.watchedEpisodes.length) * title.episodeDuration;
+			return Math.max(0, effective - title.watchedEpisodes.length) * title.episodeDuration;
 		}
 		if (title.status === 'Plan to watch') {
-			return Math.max(0, title.totalEpisodes - title.watchedEpisodes.length) * title.episodeDuration;
+			return Math.max(0, effective - title.watchedEpisodes.length) * title.episodeDuration;
 		}
 		if (title.status === 'Watching') {
-			return Math.max(0, title.totalEpisodes - title.watchedEpisodes.length) * title.episodeDuration;
+			return Math.max(0, effective - title.watchedEpisodes.length) * title.episodeDuration;
 		}
 		// Completed or other: 0
 		return 0;
@@ -441,6 +777,13 @@ export class DataManager {
 			}
 		).on('raw', (path: string) => {
 			if (path.endsWith('watchlog/data.json')) {
+				// Suppress the echo of our own saveOnly() — Obsidian fires 'raw' for
+				// any write to the plugin data file, including our debounced
+				// episode-click saves. Without this guard each click cascades into
+				// load() + notifyListeners(), forcing a full tab re-render.
+				if (Date.now() - this.lastSelfSaveTime < this.SELF_SAVE_ECHO_WINDOW_MS) {
+					return;
+				}
 				void (async () => {
 					await this.load();
 					this.notifyListeners();
@@ -488,11 +831,96 @@ export class DataManager {
 		await this.save();
 	}
 
+	// ── Skip helpers ──────────────────────────────────────────────────────────────
+
+	getTotalSkippedCount(title: WatchLogTitle): number {
+		return title.seasons.reduce((sum, s) => sum + (s.skippedEpisodes?.length ?? 0), 0);
+	}
+
+	/** totalEpisodes minus all season-defined skipped episodes. */
+	getEffectiveTotal(title: WatchLogTitle): number {
+		return Math.max(0, title.totalEpisodes - this.getTotalSkippedCount(title));
+	}
+
+	/** Returns true if absoluteEpNum falls in any season's skippedEpisodes list. */
+	isEpisodeSkipped(title: WatchLogTitle, absoluteEpNum: number): boolean {
+		for (const season of title.seasons) {
+			const rel = absoluteEpNum - season.offset;
+			if (rel >= 1 && rel <= season.episodes && (season.skippedEpisodes ?? []).includes(rel)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * In-memory toggle of an episode's watched state plus auto-complete logic.
+	 * Schedules a debounced save and does NOT notify listeners — caller is
+	 * responsible for targeted DOM updates. Returns the (mutated) title.
+	 */
+	applyEpisodeWatchedToggle(
+		id: string,
+		episodeNumber: number,
+		watched: boolean,
+	): WatchLogTitle | null {
+		const title = this.getTitle(id);
+		if (!title) return null;
+
+		if (watched) {
+			if (!title.watchedEpisodes.includes(episodeNumber)) {
+				title.watchedEpisodes.push(episodeNumber);
+				title.watchedEpisodes.sort((a, b) => a - b);
+			}
+			const now = new Date().toISOString();
+			if (title.totalEpisodes > 1) {
+				void this.historyManager?.log(
+					`${title.title} (${title.type}) episode ${episodeNumber} was marked as watched on ${formatHistoryDate(now)}`,
+					{ source: 'Watchlist', action: 'watched', titleName: title.title },
+				);
+			} else {
+				void this.historyManager?.log(
+					`${title.title} (${title.type}) was marked as watched on ${formatHistoryDate(now)}`,
+					{ source: 'Watchlist', action: 'watched', titleName: title.title },
+				);
+			}
+		} else {
+			title.watchedEpisodes = title.watchedEpisodes.filter((e) => e !== episodeNumber);
+		}
+
+		title.dateModified = new Date().toISOString();
+		this.applyAutoCompleteRules(title);
+		this.scheduleEpisodeSave(id);
+		return title;
+	}
+
+	/** Shared auto-complete / un-complete rules. Mutates title in place. */
+	private applyAutoCompleteRules(title: WatchLogTitle): void {
+		const effectiveTotal = this.getEffectiveTotal(title);
+		if (
+			this.plugin.settings.autoCompleteOnLastEpisode &&
+			effectiveTotal > 0 &&
+			title.watchedEpisodes.length >= effectiveTotal
+		) {
+			if (title.status !== 'Completed') {
+				title.status = 'Completed';
+				// Match updateTitle(): completed titles drop priority.
+				title.priority = '';
+			}
+			if (this.plugin.settings.setFinishDateAutomatically && !title.dateFinished) {
+				title.dateFinished = new Date().toISOString().split('T')[0] ?? null;
+			}
+		} else if (title.status === 'Completed' && title.watchedEpisodes.length < effectiveTotal) {
+			title.status = 'Watching';
+			title.dateFinished = null;
+		}
+	}
+
 	// ── Progress helpers ──────────────────────────────────────────────────────────
 
 	getProgress(title: WatchLogTitle): number {
-		if (title.totalEpisodes === 0) return 0;
-		return Math.round((title.watchedEpisodes.length / title.totalEpisodes) * 100);
+		const effective = this.getEffectiveTotal(title);
+		if (effective === 0) return 0;
+		return Math.min(100, Math.round((title.watchedEpisodes.length / effective) * 100));
 	}
 
 	getNextUnwatchedEpisode(title: WatchLogTitle): number | null {
@@ -514,24 +942,31 @@ export class DataManager {
 			}
 			const now = new Date().toISOString();
 			if (title.totalEpisodes > 1) {
-				void this.historyManager?.log(`${title.title} (${title.type}) episode ${episodeNumber} was marked as watched on ${formatHistoryDate(now)}`);
+				void this.historyManager?.log(
+					`${title.title} (${title.type}) episode ${episodeNumber} was marked as watched on ${formatHistoryDate(now)}`,
+					{ source: 'Watchlist', action: 'watched', titleName: title.title },
+				);
 			} else {
-				void this.historyManager?.log(`${title.title} (${title.type}) was marked as watched on ${formatHistoryDate(now)}`);
+				void this.historyManager?.log(
+					`${title.title} (${title.type}) was marked as watched on ${formatHistoryDate(now)}`,
+					{ source: 'Watchlist', action: 'watched', titleName: title.title },
+				);
 			}
 		} else {
 			title.watchedEpisodes = title.watchedEpisodes.filter((e) => e !== episodeNumber);
 		}
 
+		const effectiveTotal = this.getEffectiveTotal(title);
 		if (
 			this.plugin.settings.autoCompleteOnLastEpisode &&
-			title.totalEpisodes > 0 &&
-			title.watchedEpisodes.length >= title.totalEpisodes
+			effectiveTotal > 0 &&
+			title.watchedEpisodes.length >= effectiveTotal
 		) {
 			title.status = 'Completed';
 			if (this.plugin.settings.setFinishDateAutomatically && !title.dateFinished) {
 				title.dateFinished = new Date().toISOString().split('T')[0] ?? null;
 			}
-		} else if (title.status === 'Completed' && title.watchedEpisodes.length < title.totalEpisodes) {
+		} else if (title.status === 'Completed' && title.watchedEpisodes.length < effectiveTotal) {
 			title.status = 'Watching';
 			title.dateFinished = null;
 		}
@@ -552,16 +987,17 @@ export class DataManager {
 			title.watchedEpisodes = title.watchedEpisodes.filter((e) => !remove.has(e));
 		}
 
+		const effectiveTotal = this.getEffectiveTotal(title);
 		if (
 			this.plugin.settings.autoCompleteOnLastEpisode &&
-			title.totalEpisodes > 0 &&
-			title.watchedEpisodes.length >= title.totalEpisodes
+			effectiveTotal > 0 &&
+			title.watchedEpisodes.length >= effectiveTotal
 		) {
 			title.status = 'Completed';
 			if (this.plugin.settings.setFinishDateAutomatically && !title.dateFinished) {
 				title.dateFinished = new Date().toISOString().split('T')[0] ?? null;
 			}
-		} else if (title.status === 'Completed' && title.watchedEpisodes.length < title.totalEpisodes) {
+		} else if (title.status === 'Completed' && title.watchedEpisodes.length < effectiveTotal) {
 			title.status = 'Watching';
 			title.dateFinished = null;
 		}
@@ -591,6 +1027,8 @@ export class DataManager {
 		}
 	}
 
+	private lastMarkdownPathById: Map<string, string> = new Map();
+
 	async updateMarkdownFile(title: WatchLogTitle): Promise<void> {
 		const root = this.plugin.settings.rootFolder;
 		const folderPath = normalizePath(`${root}/${title.type}`);
@@ -599,12 +1037,28 @@ export class DataManager {
 		const filePath = normalizePath(`${folderPath}/${safeTitle}.md`);
 		const progress = this.getProgress(title);
 		const content = this.buildMarkdownContent(title, progress);
+
+		// If a different path was previously written for this title (rename/type change),
+		// remove the stale file before writing the new one.
+		const previousPath = this.lastMarkdownPathById.get(title.id);
+		if (previousPath && previousPath !== filePath) {
+			try {
+				const oldFile = this.app.vault.getAbstractFileByPath(previousPath);
+				if (oldFile instanceof TFile) {
+					await this.app.fileManager.trashFile(oldFile);
+				}
+			} catch {
+				// best-effort cleanup
+			}
+		}
+
 		const existing = this.app.vault.getAbstractFileByPath(filePath);
 		if (existing instanceof TFile) {
 			await this.app.vault.modify(existing, content);
 		} else {
 			await this.app.vault.create(filePath, content);
 		}
+		this.lastMarkdownPathById.set(title.id, filePath);
 	}
 
 	async createMarkdownFileIfMissing(title: WatchLogTitle): Promise<boolean> {

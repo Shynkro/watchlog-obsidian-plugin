@@ -1,88 +1,244 @@
 import type WatchLogPlugin from './main';
 import type { DataManager } from './DataManager';
-import type { TagDefinition } from './types';
-import { formatTime, getThemedColor } from './types';
+import type { ReadingDataManager } from './ReadingDataManager';
+import type { Book, Manga, TagDefinition, WatchLogTitle } from './types';
+import { formatTime, getThemedColor, getReadingTypeColor } from './types';
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 45; // r=45
+
+/** Aggregated reading stats for one kind (books or manga). */
+interface ReadingAggregate {
+	left: number;       // count of Reading + Plan to Read (To be released excluded)
+	read: number;       // sum of pages (books) / chapters (manga) read
+	total: number;      // sum of total pages / chapters
+	volumesRead: number;
+	totalVolumes: number;
+}
 
 export class DashboardTab {
 	private container: HTMLElement;
 	private plugin: WatchLogPlugin;
 	private dataManager: DataManager;
+	private readingData: ReadingDataManager;
 
-	constructor(container: HTMLElement, plugin: WatchLogPlugin, dataManager: DataManager) {
+	constructor(
+		container: HTMLElement,
+		plugin: WatchLogPlugin,
+		dataManager: DataManager,
+		readingData: ReadingDataManager,
+	) {
 		this.container = container;
 		this.plugin = plugin;
 		this.dataManager = dataManager;
+		this.readingData = readingData;
 	}
 
 	render(): void {
 		this.container.empty();
 		this.container.addClass('wl-dashboard');
 
-		this.renderCards();
-		this.renderSummaryMetrics();
-		this.renderSuggestions();
+		// Precompute shared collections once per render so each subrenderer
+		// doesn't trigger another full scan of the titles array.
+		const allTitles = this.dataManager.getTitles();
+		const byType = new Map<string, WatchLogTitle[]>();
+		for (const t of allTitles) {
+			const arr = byType.get(t.type);
+			if (arr) arr.push(t);
+			else byType.set(t.type, [t]);
+		}
+		const planTitles = allTitles.filter((t) => t.status === 'Plan to watch');
+
+		// Reading data sourced from ReadingDataManager so footer counts span both datasets.
+		const books = this.readingData.getBooks();
+		const manga = this.readingData.getMangaList();
+
+		// Library + Completed counts sum watch + reading (books + manga). A reading item
+		// only counts as completed when its status is exactly 'Completed', matching the watch side.
+		const titleCount = allTitles.length + books.length + manga.length;
+		const completedCount =
+			allTitles.reduce((n, t) => n + (t.status === 'Completed' ? 1 : 0), 0) +
+			books.reduce((n, b) => n + (b.status === 'Completed' ? 1 : 0), 0) +
+			manga.reduce((n, m) => n + (m.status === 'Completed' ? 1 : 0), 0);
+
+		// Reading aggregates computed once per render (not per data change).
+		const booksAgg = this.aggregateBooks(books);
+		const mangaAgg = this.aggregateManga(manga);
+
+		this.renderCards(allTitles, byType, booksAgg, mangaAgg);
+		this.renderSummaryMetrics(titleCount, completedCount);
+		this.renderSuggestions(planTitles);
 		this.renderRecentlyWatched();
 		this.renderRecentlyAdded();
 	}
 
-	private renderCards(): void {
+	private statsFor(titles: WatchLogTitle[]): { watched: number; total: number } {
+		const EXCLUDED = new Set(['Dropped', 'To be released']);
+		let total = 0;
+		let watched = 0;
+		for (const t of titles) {
+			if (EXCLUDED.has(t.status)) continue;
+			total++;
+			if (t.status === 'Completed') watched++;
+		}
+		return { watched, total };
+	}
+
+	private renderCards(
+		allTitles: WatchLogTitle[],
+		byType: Map<string, WatchLogTitle[]>,
+		booksAgg: ReadingAggregate,
+		mangaAgg: ReadingAggregate,
+	): void {
 		const isRect = this.plugin.settings.dashboardCardStyle === 'rectangles';
 		const grid = this.container.createDiv({ cls: 'wl-rings-grid' });
 
-		// Always-present Total card
-		const totalStats = this.dataManager.getStatsByType('All');
+		// Unified Total / Time card, anchored at the top (spans full width).
+		const totalStats = this.statsFor(allTitles);
 		const totalPercent =
 			totalStats.total === 0
 				? 0
 				: Math.round((totalStats.watched / totalStats.total) * 100);
-		if (isRect) {
-			this.renderRect(grid, 'Total', '#7F77DD', totalPercent, totalStats);
-		} else {
-			this.renderRing(grid, 'Total', '#7F77DD', totalPercent, totalStats);
-		}
+		const timeWatched = this.dataManager.getTotalTimeWatched();
+		const timeRemaining = this.dataManager.getTotalTimeRemaining();
+		this.renderUnifiedCard(
+			grid, isRect, totalPercent, totalStats,
+			formatTime(timeWatched), formatTime(timeRemaining),
+		);
 
 		// One card per type
 		for (const type of this.plugin.settings.types) {
-			const stats = this.dataManager.getStatsByType(type.name);
+			const stats = this.statsFor(byType.get(type.name) ?? []);
 			const percent =
 				stats.total === 0 ? 0 : Math.round((stats.watched / stats.total) * 100);
 			if (isRect) {
-				this.renderRect(grid, type.name, type.color, percent, stats);
+				const item = grid.createDiv({ cls: 'wl-rect-item' });
+				this.fillRect(item, type.name, type.color, percent, stats);
+				// Reserve the sublabel line so type cards match the taller Books/Manga cards.
+				item.createDiv({ cls: 'wl-rect-subline', text: ' ' });
 			} else {
-				this.renderRing(grid, type.name, type.color, percent, stats);
+				const item = grid.createDiv({ cls: 'wl-ring-item' });
+				this.fillRing(item, type.name, type.color, percent, stats);
+				item.createDiv({ cls: 'wl-ring-subtitle wl-ring-subline', text: ' ' });
 			}
 		}
 
-		// Time Watched card
-		const timeWatched = this.dataManager.getTotalTimeWatched();
+		// Reading cards (Books + Manga) at the end of the flow.
+		this.renderReadingCard(grid, isRect, 'Books', booksAgg);
+		this.renderReadingCard(grid, isRect, 'Manga', mangaAgg);
+	}
+
+	// ── Unified Total / Time card ──────────────────────────────────────────────────
+
+	private renderUnifiedCard(
+		grid: HTMLElement,
+		isRect: boolean,
+		totalPercent: number,
+		totalStats: { watched: number; total: number },
+		timeWatchedStr: string,
+		timeRemainingStr: string,
+	): void {
+		// Rect cards carry an outer border; ring cards don't — match the active style.
+		const card = grid.createDiv({
+			cls: isRect ? 'wl-dash-unified wl-dash-unified-bordered' : 'wl-dash-unified',
+		});
+
+		// Segment 1 — Total (full card content, matching the chosen card style).
+		// Ring content is centered; rect content stretches so its bar spans the segment.
+		const seg1 = card.createDiv({ cls: isRect ? 'wl-dash-seg' : 'wl-dash-seg wl-dash-seg-center' });
 		if (isRect) {
-			this.renderTimeRect(grid, 'Time Watched', '#1D9E75', formatTime(timeWatched));
+			// Rect content goes straight into the segment so its border is the card's.
+			this.fillRect(seg1, 'Total', '#7F77DD', totalPercent, totalStats);
 		} else {
-			this.renderTimeRing(grid, 'Time Watched', '#1D9E75', formatTime(timeWatched));
+			// Rings are borderless; wrap so the decorative accent ring matches type cards.
+			this.fillRing(seg1.createDiv({ cls: 'wl-ring-item' }), 'Total', '#7F77DD', totalPercent, totalStats);
 		}
 
-		// Time Remaining card
-		const timeRemaining = this.dataManager.getTotalTimeRemaining();
+		// Segments 2 & 3 — Time Watched / Remaining: label + value, no bar.
+		this.renderTimeSegment(card, 'Time Watched', timeWatchedStr);
+		this.renderTimeSegment(card, 'Time Remaining', timeRemainingStr);
+	}
+
+	private renderTimeSegment(card: HTMLElement, label: string, value: string): void {
+		const seg = card.createDiv({ cls: 'wl-dash-seg wl-dash-seg-center' });
+		seg.createDiv({ cls: 'wl-dash-seg-label', text: label });
+		seg.createDiv({ cls: 'wl-dash-seg-value', text: value });
+	}
+
+	// ── Reading cards (Books / Manga) ──────────────────────────────────────────────
+
+	private aggregateBooks(books: Book[]): ReadingAggregate {
+		const agg: ReadingAggregate = { left: 0, read: 0, total: 0, volumesRead: 0, totalVolumes: 0 };
+		for (const b of books) {
+			if (b.status === 'To be released') continue; // excluded entirely
+			if (b.status === 'Reading' || b.status === 'Plan to Read') agg.left++;
+			agg.read += b.pagesRead;
+			agg.total += b.totalPages;
+		}
+		return agg;
+	}
+
+	private aggregateManga(manga: Manga[]): ReadingAggregate {
+		const agg: ReadingAggregate = { left: 0, read: 0, total: 0, volumesRead: 0, totalVolumes: 0 };
+		for (const m of manga) {
+			if (m.status === 'To be released') continue; // excluded entirely
+			if (m.status === 'Reading' || m.status === 'Plan to Read') agg.left++;
+			agg.read += m.chaptersRead;
+			agg.total += m.totalChapters;
+			agg.volumesRead += m.volumesRead;
+			agg.totalVolumes += m.totalVolumes;
+		}
+		return agg;
+	}
+
+	private renderReadingCard(
+		grid: HTMLElement,
+		isRect: boolean,
+		label: 'Books' | 'Manga',
+		agg: ReadingAggregate,
+	): void {
+		const percent = agg.total > 0 ? Math.round((agg.read / agg.total) * 100) : 0;
+		// Configured Reading type color (Books → book, Manga → manga), mirroring how
+		// watchlist type cards use their type color.
+		const color = getReadingTypeColor(label === 'Books' ? 'book' : 'manga', this.plugin.settings);
+
+		// Single inline subline under the bar: Books → pages; Manga → chapters · vol.
+		const subline =
+			label === 'Books'
+				? `${agg.read} / ${agg.total} pages`
+				: `${agg.read} / ${agg.total} chapters · ${agg.volumesRead} / ${agg.totalVolumes} vol`;
+
 		if (isRect) {
-			this.renderTimeRect(grid, 'Time Remaining', '#BA7517', formatTime(timeRemaining));
+			const item = grid.createDiv({ cls: 'wl-rect-item' });
+			const topRow = item.createDiv({ cls: 'wl-rect-top' });
+			topRow.createSpan({ cls: 'wl-rect-label', text: label });
+			topRow.createSpan({ cls: 'wl-rect-unwatched', text: `${agg.left} left` });
+			item.createDiv({ cls: 'wl-rect-value', text: `${percent}%` });
+			const barWrap = item.createDiv({ cls: 'wl-rect-bar-wrap' });
+			const bar = barWrap.createDiv({ cls: 'wl-rect-bar' });
+			bar.style.width = `${percent}%`;
+			bar.style.backgroundColor = color;
+			item.createDiv({ cls: 'wl-rect-subline', text: subline });
 		} else {
-			this.renderTimeRing(grid, 'Time Remaining', '#BA7517', formatTime(timeRemaining));
+			const item = grid.createDiv({ cls: 'wl-ring-item' });
+			const svg = this.makeRingSvg(percent, color, `${percent}%`, '', true);
+			item.appendChild(svg);
+			item.createDiv({ cls: 'wl-ring-label', text: label });
+			item.createDiv({ cls: 'wl-ring-subtitle', text: `${agg.left} left` });
+			item.createDiv({ cls: 'wl-ring-subtitle wl-ring-subline', text: subline });
 		}
 	}
 
-	// ── Ring (circle) cards ───────────────────────────────────────────────────────
+	// ── Shared card content builders ───────────────────────────────────────────────
 
-	private renderRing(
-		parent: HTMLElement,
-		label: string,
-		color: string,
+	/** Builds the progress-ring SVG. When `themeStroke` is set, the arc colour is
+	 *  applied via inline style so CSS vars (e.g. var(--wl-accent)) resolve. */
+	private makeRingSvg(
 		percent: number,
-		stats: { watched: number; total: number },
-	): void {
-		const item = parent.createDiv({ cls: 'wl-ring-item' });
-
+		color: string,
+		centerText: string,
+		subText: string,
+		themeStroke = false,
+	): SVGSVGElement {
 		const svgNS = 'http://www.w3.org/2000/svg';
 		const svg = activeDocument.createElementNS(svgNS, 'svg');
 		svg.setAttribute('viewBox', '0 0 120 120');
@@ -104,102 +260,59 @@ export class DashboardTab {
 		arc.setAttribute('cy', '60');
 		arc.setAttribute('r', '45');
 		arc.setAttribute('fill', 'none');
-		arc.setAttribute('stroke', color);
+		if (themeStroke) arc.style.stroke = color;
+		else arc.setAttribute('stroke', color);
 		arc.setAttribute('stroke-width', '10');
 		arc.setAttribute('stroke-linecap', 'round');
 		arc.setAttribute('stroke-dasharray', String(RING_CIRCUMFERENCE));
-		const dashOffset = RING_CIRCUMFERENCE * (1 - percent / 100);
-		arc.setAttribute('stroke-dashoffset', String(dashOffset));
+		arc.setAttribute('stroke-dashoffset', String(RING_CIRCUMFERENCE * (1 - percent / 100)));
 		arc.setAttribute('transform', 'rotate(-90 60 60)');
 		arc.addClass('wl-ring-arc');
 		svg.appendChild(arc);
 
 		const text = activeDocument.createElementNS(svgNS, 'text');
 		text.setAttribute('x', '60');
-		text.setAttribute('y', '55');
+		text.setAttribute('y', subText ? '55' : '60');
 		text.setAttribute('text-anchor', 'middle');
 		text.setAttribute('dominant-baseline', 'middle');
 		text.addClass('wl-ring-percent-text');
-		text.textContent = `${percent}%`;
+		text.textContent = centerText;
 		svg.appendChild(text);
 
-		const subText = activeDocument.createElementNS(svgNS, 'text');
-		subText.setAttribute('x', '60');
-		subText.setAttribute('y', '72');
-		subText.setAttribute('text-anchor', 'middle');
-		subText.addClass('wl-ring-sub-text');
-		subText.textContent = `${stats.watched}/${stats.total}`;
-		svg.appendChild(subText);
+		if (subText) {
+			const sub = activeDocument.createElementNS(svgNS, 'text');
+			sub.setAttribute('x', '60');
+			sub.setAttribute('y', '72');
+			sub.setAttribute('text-anchor', 'middle');
+			sub.addClass('wl-ring-sub-text');
+			sub.textContent = subText;
+			svg.appendChild(sub);
+		}
 
+		return svg;
+	}
+
+	private fillRing(
+		item: HTMLElement,
+		label: string,
+		color: string,
+		percent: number,
+		stats: { watched: number; total: number },
+	): void {
+		const svg = this.makeRingSvg(percent, color, `${percent}%`, `${stats.watched}/${stats.total}`);
 		item.appendChild(svg);
 		item.createDiv({ cls: 'wl-ring-label', text: label });
 		const unwatched = stats.total - stats.watched;
 		item.createDiv({ cls: 'wl-ring-subtitle', text: `${unwatched} unwatched` });
 	}
 
-	private renderTimeRing(
-		parent: HTMLElement,
-		label: string,
-		color: string,
-		timeStr: string,
-	): void {
-		const item = parent.createDiv({ cls: 'wl-ring-item' });
-
-		const svgNS = 'http://www.w3.org/2000/svg';
-		const svg = activeDocument.createElementNS(svgNS, 'svg');
-		svg.setAttribute('viewBox', '0 0 120 120');
-		svg.setAttribute('width', '110');
-		svg.setAttribute('height', '110');
-		svg.addClass('wl-ring-svg');
-
-		const bgCircle = activeDocument.createElementNS(svgNS, 'circle');
-		bgCircle.setAttribute('cx', '60');
-		bgCircle.setAttribute('cy', '60');
-		bgCircle.setAttribute('r', '45');
-		bgCircle.setAttribute('fill', 'none');
-		bgCircle.setAttribute('stroke-width', '10');
-		bgCircle.addClass('wl-ring-track');
-		svg.appendChild(bgCircle);
-
-		const arc = activeDocument.createElementNS(svgNS, 'circle');
-		arc.setAttribute('cx', '60');
-		arc.setAttribute('cy', '60');
-		arc.setAttribute('r', '45');
-		arc.setAttribute('fill', 'none');
-		arc.setAttribute('stroke', color);
-		arc.setAttribute('stroke-width', '10');
-		arc.setAttribute('stroke-linecap', 'round');
-		arc.setAttribute('stroke-dasharray', String(RING_CIRCUMFERENCE));
-		arc.setAttribute('stroke-dashoffset', '0');
-		arc.setAttribute('transform', 'rotate(-90 60 60)');
-		arc.addClass('wl-ring-arc');
-		svg.appendChild(arc);
-
-		const text = activeDocument.createElementNS(svgNS, 'text');
-		text.setAttribute('x', '60');
-		text.setAttribute('y', '60');
-		text.setAttribute('text-anchor', 'middle');
-		text.setAttribute('dominant-baseline', 'middle');
-		text.addClass('wl-ring-time-text');
-		text.textContent = timeStr;
-		svg.appendChild(text);
-
-		item.appendChild(svg);
-		item.createDiv({ cls: 'wl-ring-label', text: label });
-		item.createDiv({ cls: 'wl-ring-subtitle', text: 'total' });
-	}
-
-	// ── Rectangle cards ───────────────────────────────────────────────────────────
-
-	private renderRect(
-		parent: HTMLElement,
+	private fillRect(
+		item: HTMLElement,
 		label: string,
 		color: string,
 		percent: number,
 		stats: { watched: number; total: number },
 	): void {
-		const item = parent.createDiv({ cls: 'wl-rect-item' });
-
 		const topRow = item.createDiv({ cls: 'wl-rect-top' });
 		topRow.createSpan({ cls: 'wl-rect-label', text: label });
 		const unwatched = stats.total - stats.watched;
@@ -213,33 +326,12 @@ export class DashboardTab {
 		bar.style.backgroundColor = color;
 	}
 
-	private renderTimeRect(
-		parent: HTMLElement,
-		label: string,
-		color: string,
-		timeStr: string,
-	): void {
-		const item = parent.createDiv({ cls: 'wl-rect-item' });
-
-		const topRow = item.createDiv({ cls: 'wl-rect-top' });
-		topRow.createSpan({ cls: 'wl-rect-label', text: label });
-		topRow.createSpan({ cls: 'wl-rect-unwatched', text: 'total' });
-
-		item.createDiv({ cls: 'wl-rect-value', text: timeStr });
-
-		const barWrap = item.createDiv({ cls: 'wl-rect-bar-wrap' });
-		const bar = barWrap.createDiv({ cls: 'wl-rect-bar wl-rect-bar-full' });
-		bar.style.backgroundColor = color;
-	}
-
 	// ── Summary metrics ───────────────────────────────────────────────────────────
 
-	private renderSummaryMetrics(): void {
+	private renderSummaryMetrics(titleCount: number, completedCount: number): void {
 		const section = this.container.createDiv({ cls: 'wl-summary-metrics' });
-		const titles = this.dataManager.getTitles();
-		const completed = this.dataManager.getCompletedCount();
-		this.renderMetricRow(section, 'Titles in library', String(titles.length));
-		this.renderMetricRow(section, 'Completed', String(completed));
+		this.renderMetricRow(section, 'Titles in library', String(titleCount));
+		this.renderMetricRow(section, 'Completed', String(completedCount));
 	}
 
 	private renderMetricRow(parent: HTMLElement, label: string, value: string): void {
@@ -250,8 +342,7 @@ export class DashboardTab {
 
 	// ── Suggestions ──────────────────────────────────────────────────────────────
 
-	private renderSuggestions(): void {
-		const planTitles = this.dataManager.getTitles().filter((t) => t.status === 'Plan to watch');
+	private renderSuggestions(planTitles: WatchLogTitle[]): void {
 		if (planTitles.length === 0) return;
 
 		const section = this.container.createDiv({ cls: 'wl-suggestions' });

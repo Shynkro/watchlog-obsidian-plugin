@@ -1,11 +1,42 @@
 import { App, Modal, Notice } from 'obsidian';
 import type WatchLogPlugin from './main';
 import type { DataManager } from './DataManager';
-import type { WatchLogTitle, AirtimeEntry, AirtimeSchedule, AirtimeRecurrence, MaybeTitle } from './types';
-import { getAirtimeScheduleString, getThemedColor } from './types';
-import { InsertWidgetModal } from './InsertWidgetModal';
+import type { ReadingDataManager } from './ReadingDataManager';
+import type { WatchLogTitle, AirtimeEntry, AirtimeSchedule, AirtimeRecurrence, MaybeTitle, Book, Manga } from './types';
+import { getAirtimeScheduleString, getThemedColor, getReadingTypeColor, parseDateInput, isReleaseDateFuture } from './types';
 import { ConfirmModal } from './ConfirmModal';
 import { MaybeAddModal } from './MaybeAddModal';
+import { ReadingScheduleModal } from './ReadingScheduleModal';
+import { UpcomingFinderModal, type UpcomingFinderItem } from './UpcomingFinderModal';
+
+/**
+ * A normalized Upcoming card subject — either a watchlist title or a reading item.
+ * Lets the tracker render and act on both through one shared code path.
+ */
+type ResolvedUpcoming = {
+	source: 'watchlist' | 'reading';
+	id: string;
+	title: string;
+	/** Badge text: a watch type ("Anime", "Movie", …) or "Book" / "Manga". */
+	typeName: string;
+	/** Colored-badge color, or null to render a plain badge (reading). */
+	typeColor: string | null;
+	externalLink: string;
+	/** True when the item is a single release (movie/book): 0 or 1 total units. */
+	isSingle: boolean;
+	/** Total episodes (watch) or total chapters (reading). */
+	totalUnits: number;
+	/** Lowercase noun for the incrementing unit: "episode" | "chapter". */
+	unitNoun: string;
+	/** Capitalized incrementing unit: "Episode" | "Chapter". */
+	unitNounCap: string;
+	/** Capitalized grouping unit: "Season" | "Volume". */
+	groupNounCap: string;
+	/** Badge tail: "Airing next" | "Reading next". */
+	nextLabel: string;
+	/** Status to revert to on single-release tick: "Plan to watch" | "Plan to Read". */
+	planStatus: string;
+};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -73,7 +104,7 @@ function getDetailedCountdown(
 
 	if (schedule.recurrence === 'daily') {
 		const passed = isAirtimePassedNow(schedule);
-		// If user already ticked today, advance to tomorrow
+		// Already ticked today → advance to tomorrow
 		if (passed && acknowledgedToday) return { kind: 'future', label: 'Tomorrow', daysUntil: 1 };
 		if (passed) return { kind: 'aired', label: 'Aired', daysUntil: 0 };
 		return { kind: 'today-before', label: 'Today', daysUntil: 0 };
@@ -138,9 +169,10 @@ export class AirtimeTab {
 	private container: HTMLElement;
 	private plugin: WatchLogPlugin;
 	private dataManager: DataManager;
+	private readingDataManager: ReadingDataManager;
 	private onCountChange?: (count: number) => void;
 
-	// Sub-tab state (Feature 2)
+	// Sub-tab state
 	currentSubTab: 'tracker' | 'history' | 'maybe' = 'tracker';
 
 	// Selection mode
@@ -159,7 +191,61 @@ export class AirtimeTab {
 		this.container = container;
 		this.plugin = plugin;
 		this.dataManager = dataManager;
+		this.readingDataManager = plugin.readingDataManager;
 		this.onCountChange = onCountChange;
+	}
+
+	/**
+	 * Normalizes an airtime entry into a renderable subject, resolving the
+	 * underlying watchlist title or reading item. Returns null for orphan entries.
+	 */
+	private resolveEntry(entry: AirtimeEntry): ResolvedUpcoming | null {
+		if (entry.source === 'reading') {
+			const kind = entry.readingKind ?? 'book';
+			const item: Book | Manga | undefined =
+				kind === 'book' ? this.readingDataManager.getBook(entry.titleId) : this.readingDataManager.getManga(entry.titleId);
+			if (!item) return null;
+			const totalUnits = entry.totalEpisodes ?? item.totalChapters ?? 0;
+			return {
+				source: 'reading',
+				id: item.id,
+				title: item.title,
+				typeName: kind === 'book' ? 'Book' : 'Manga',
+				typeColor: this.plugin.settings.coloredTypeBadges
+					? getReadingTypeColor(kind, this.plugin.settings)
+					: null,
+				externalLink: item.externalLink ?? '',
+				isSingle: totalUnits <= 1,
+				totalUnits,
+				unitNoun: 'chapter',
+				unitNounCap: 'Chapter',
+				groupNounCap: 'Volume',
+				nextLabel: 'Reading next',
+				planStatus: 'Plan to Read',
+			};
+		}
+
+		const title = this.dataManager.getTitle(entry.titleId);
+		if (!title) return null;
+		const typeDef = this.plugin.settings.types.find((t) => t.name === title.type);
+		const colored = this.plugin.settings.coloredTypeBadges;
+		return {
+			source: 'watchlist',
+			id: title.id,
+			title: title.title,
+			typeName: title.type,
+			typeColor: colored && typeDef
+				? getThemedColor(title.type, typeDef.color, this.plugin.settings.colorTheme)
+				: null,
+			externalLink: title.externalLink,
+			isSingle: title.totalEpisodes <= 1,
+			totalUnits: entry.totalEpisodes ?? title.totalEpisodes,
+			unitNoun: 'episode',
+			unitNounCap: 'Episode',
+			groupNounCap: 'Season',
+			nextLabel: 'Airing next',
+			planStatus: 'Plan to watch',
+		};
 	}
 
 	/** Returns the count of Due entries in the Maybe list — usable without rendering the tab. */
@@ -173,15 +259,29 @@ export class AirtimeTab {
 	}
 
 	/** Returns the count of Aired/Due entries — usable without rendering the tab. */
-	static getAiredDueCount(dataManager: DataManager): number {
+	static getAiredDueCount(dataManager: DataManager, readingDataManager?: ReadingDataManager): number {
 		const allEntries = dataManager.getAirtimeEntries();
 		const titles = dataManager.getTitles();
+		const titleMap = new Map(titles.map((t) => [t.id, t]));
 		let count = 0;
 		for (const entry of allEntries) {
-			const title = titles.find((t) => t.id === entry.titleId);
-			if (!title) continue;
-			const isMovie = title.totalEpisodes <= 1;
-			const cd = getDetailedCountdown(entry.schedule, isMovie, entry.lastAcknowledgedDate);
+			let isSingle: boolean;
+			if (entry.source === 'reading') {
+				// Verify the reading item still exists (skip orphans) when we have the manager.
+				if (readingDataManager) {
+					const kind = entry.readingKind ?? 'book';
+					const item = kind === 'book'
+						? readingDataManager.getBook(entry.titleId)
+						: readingDataManager.getManga(entry.titleId);
+					if (!item) continue;
+				}
+				isSingle = (entry.totalEpisodes ?? 0) <= 1;
+			} else {
+				const title = titleMap.get(entry.titleId);
+				if (!title) continue;
+				isSingle = title.totalEpisodes <= 1;
+			}
+			const cd = getDetailedCountdown(entry.schedule, isSingle, entry.lastAcknowledgedDate);
 			if (cd.kind === 'aired' || cd.kind === 'due') count++;
 		}
 		return count;
@@ -191,7 +291,7 @@ export class AirtimeTab {
 		this.container.empty();
 		this.container.addClass('wl-airtime');
 		if (this.onCountChange) {
-			this.onCountChange(AirtimeTab.getAiredDueCount(this.dataManager) + AirtimeTab.getMaybeDueCount(this.dataManager));
+			this.onCountChange(AirtimeTab.getAiredDueCount(this.dataManager, this.readingDataManager) + AirtimeTab.getMaybeDueCount(this.dataManager));
 		}
 		this.renderInnerTabBar();
 		if (this.currentSubTab === 'tracker') {
@@ -205,11 +305,11 @@ export class AirtimeTab {
 
 	private renderInnerTabBar(): void {
 		const bar = this.container.createDiv({ cls: 'wl-inner-tab-bar' });
-		const trackerCount = AirtimeTab.getAiredDueCount(this.dataManager);
+		const trackerCount = AirtimeTab.getAiredDueCount(this.dataManager, this.readingDataManager);
 		const maybeCount = AirtimeTab.getMaybeDueCount(this.dataManager);
 		const tabs: Array<{ key: 'tracker' | 'history' | 'maybe'; label: string; badge: number }> = [
 			{ key: 'tracker', label: 'Tracker', badge: trackerCount },
-			{ key: 'history', label: 'History', badge: 0 },
+			{ key: 'history', label: 'Log', badge: 0 },
 			{ key: 'maybe',   label: 'Maybe',   badge: maybeCount },
 		];
 		for (const { key, label, badge } of tabs) {
@@ -230,11 +330,12 @@ export class AirtimeTab {
 	}
 
 	private renderTracker(): void {
-		// Notice banner
-		this.container.createDiv({
-			cls: 'wl-cl-draft-banner',
-			text: '⚠ All titles with a release date in the future will be automatically marked as "To be released" in Watchlist and added here.',
-		});
+		if (this.plugin.settings.showHintBanners) {
+			this.container.createDiv({
+				cls: 'wl-cl-draft-banner',
+				text: '⚠ All titles with a release date in the future will be automatically marked as "To be released" in Watchlist and added here.',
+			});
+		}
 		this.renderHeader();
 		this.renderSearch();
 		this.renderCards();
@@ -279,21 +380,20 @@ export class AirtimeTab {
 			metaRow.createSpan({ cls: 'wl-airtime-schedule', text: title.releaseDate });
 		}
 
-		const right = card.createDiv({ cls: 'wl-airtime-card-right' });
+		const right = card.createDiv({ cls: 'wl-airtime-card-right wl-airtime-history-right' });
 		if (title.releaseDate) {
 			right.createDiv({ cls: 'wl-airtime-pill wl-airtime-pill-aired', text: formatDaysAgo(title.releaseDate) });
 		}
 
-		const actions = right.createDiv({ cls: 'wl-airtime-actions' });
-		const globeBtn = actions.createEl('button', { cls: 'wl-airtime-action-btn', text: '🌐' });
+		const globeBtn = right.createEl('button', { cls: 'wl-airtime-action-btn', text: '🌐' });
 		globeBtn.title = 'Open page';
 		globeBtn.addEventListener('click', (e) => {
 			e.stopPropagation();
-			if (title.externalLink) window.open(title.externalLink, '_blank');
+			if (title.externalLink) activeWindow.open(title.externalLink, '_blank');
 			else new Notice('No external link set for this title.');
 		});
 
-		const deleteBtn = actions.createEl('button', { cls: 'wl-airtime-action-btn wl-airtime-action-btn-delete', text: '✕' });
+		const deleteBtn = right.createEl('button', { cls: 'wl-airtime-action-btn wl-airtime-action-btn-delete wl-btn-danger', text: '✕' });
 		deleteBtn.title = 'Remove from watchlist';
 		deleteBtn.addEventListener('click', (e) => {
 			e.stopPropagation();
@@ -311,8 +411,10 @@ export class AirtimeTab {
 			headerEl.createSpan({ cls: 'wl-list-count', text: String(maybeTitles.length) });
 		}
 		const controls = headerEl.createDiv({ cls: 'wl-header-controls' });
-		const addBtnWrap = controls.createDiv({ cls: 'wl-add-btn-wrap' });
-		const addBtn = addBtnWrap.createEl('button', { cls: 'wl-add-btn', text: '+ add' });
+		// Add pinned to the far right of the toolbar row
+		const rightGroup = controls.createDiv({ cls: 'wl-header-controls-right' });
+		const addBtnWrap = rightGroup.createDiv({ cls: 'wl-add-btn-wrap' });
+		const addBtn = addBtnWrap.createEl('button', { cls: 'wl-add-btn wl-btn-success', text: '+ add' });
 		addBtn.addEventListener('click', (e) => {
 			e.stopPropagation();
 			new MaybeAddModal(this.plugin.app, this.plugin, this.dataManager, () => this.render()).open();
@@ -376,10 +478,10 @@ export class AirtimeTab {
 		globeBtn.title = 'Open page';
 		globeBtn.addEventListener('click', (e) => {
 			e.stopPropagation();
-			if (mt.externalLink) window.open(mt.externalLink, '_blank');
+			if (mt.externalLink) activeWindow.open(mt.externalLink, '_blank');
 			else new Notice('No external link set.');
 		});
-		const deleteBtn = right.createEl('button', { cls: 'wl-airtime-action-btn wl-airtime-action-btn-delete', text: '✕' });
+		const deleteBtn = right.createEl('button', { cls: 'wl-airtime-action-btn wl-airtime-action-btn-delete wl-btn-danger', text: '✕' });
 		deleteBtn.title = 'Remove from maybe';
 		deleteBtn.addEventListener('click', (e) => {
 			e.stopPropagation();
@@ -396,9 +498,14 @@ export class AirtimeTab {
 			attr: { type: 'text', placeholder: 'Search upcoming...' },
 		});
 		input.value = this.searchQuery;
+		let debounceTimer: number | null = null;
 		input.addEventListener('input', () => {
 			this.searchQuery = input.value;
-			this.rerenderCards();
+			if (debounceTimer !== null) window.clearTimeout(debounceTimer);
+			debounceTimer = window.setTimeout(() => {
+				debounceTimer = null;
+				this.rerenderCards();
+			}, 250);
 		});
 	}
 
@@ -415,10 +522,9 @@ export class AirtimeTab {
 	private renderHeader(): void {
 		const header = this.container.createDiv({ cls: 'wl-list-header' });
 
-		// Entry count (only entries with a valid title match)
-		const allTitles = this.dataManager.getTitles();
+		// Entry count (only entries that still resolve to a watchlist or reading item)
 		const count = this.dataManager.getAirtimeEntries().filter(
-			(e) => allTitles.some((t) => t.id === e.titleId),
+			(e) => this.resolveEntry(e) !== null,
 		).length;
 		if (count > 0) {
 			header.createSpan({ cls: 'wl-list-count', text: String(count) });
@@ -448,8 +554,11 @@ export class AirtimeTab {
 			});
 		}
 
+		// Select + add pinned to the far right of the toolbar row
+		const rightGroup = controls.createDiv({ cls: 'wl-header-controls-right' });
+
 		// Selection mode toggle button
-		const selBtn = controls.createEl('button', {
+		const selBtn = rightGroup.createEl('button', {
 			cls: `wl-btn wl-btn-sm${this.selectionMode ? ' is-active' : ''}`,
 			text: 'Select',
 		});
@@ -459,8 +568,8 @@ export class AirtimeTab {
 			this.render();
 		});
 
-		const addBtnWrap = controls.createDiv({ cls: 'wl-add-btn-wrap' });
-		const addBtn = addBtnWrap.createEl('button', { cls: 'wl-add-btn', text: '+ add' });
+		const addBtnWrap = rightGroup.createDiv({ cls: 'wl-add-btn-wrap' });
+		const addBtn = addBtnWrap.createEl('button', { cls: 'wl-add-btn wl-btn-success', text: '+ add' });
 		addBtn.addEventListener('click', (e) => {
 			e.stopPropagation();
 			this.openAddFlow();
@@ -472,7 +581,7 @@ export class AirtimeTab {
 
 		// Delete — removes selected entries from Upcoming
 		const deleteBtn = bar.createEl('button', {
-			cls: 'wl-group-action-btn wl-group-action-btn-delete',
+			cls: 'wl-group-action-btn wl-group-action-btn-delete wl-btn-danger',
 			text: '✕',
 		});
 		deleteBtn.title = 'Remove from upcoming';
@@ -484,9 +593,7 @@ export class AirtimeTab {
 				`Remove ${count} selected item${count !== 1 ? 's' : ''} from Upcoming? This cannot be undone.`,
 				() => {
 					void (async () => {
-						for (const id of Array.from(this.selectedItems)) {
-							await this.dataManager.removeAirtimeEntry(id);
-						}
+						await this.dataManager.removeAirtimeEntriesBatch(Array.from(this.selectedItems));
 						this.selectedItems.clear();
 						this.render();
 					})();
@@ -498,24 +605,140 @@ export class AirtimeTab {
 	// ── Add flow ──────────────────────────────────────────────────────────────────
 
 	private openAddFlow(): void {
-		const titles = this.dataManager.getTitles();
-		if (titles.length === 0) {
-			new Notice('No titles in your watchlog library yet.');
-			return;
-		}
-
 		const entries = this.dataManager.getAirtimeEntries();
-		const alreadyAdded = new Set(entries.map((e) => e.titleId));
-		const available = titles.filter((t) => !alreadyAdded.has(t.id));
+		// Already-added keys, kept separate per source so a watchlist id and a
+		// reading id that happen to match don't shadow each other.
+		const addedWatch = new Set(entries.filter((e) => e.source !== 'reading').map((e) => e.titleId));
+		const addedReading = new Set(entries.filter((e) => e.source === 'reading').map((e) => e.titleId));
 
-		if (available.length === 0) {
-			new Notice('All titles are already in upcoming.');
+		const items: UpcomingFinderItem[] = [];
+		for (const t of this.dataManager.getTitles()) {
+			if (addedWatch.has(t.id)) continue;
+			items.push({ source: 'watchlist', id: t.id, title: t.title, typeLabel: t.type });
+		}
+		for (const b of this.readingDataManager.getBooks()) {
+			if (addedReading.has(b.id)) continue;
+			items.push({ source: 'reading', kind: 'book', id: b.id, title: b.title, typeLabel: 'Book' });
+		}
+		for (const m of this.readingDataManager.getMangaList()) {
+			if (addedReading.has(m.id)) continue;
+			items.push({ source: 'reading', kind: 'manga', id: m.id, title: m.title, typeLabel: 'Manga' });
+		}
+
+		if (this.dataManager.getTitles().length === 0 &&
+			this.readingDataManager.getBooks().length === 0 &&
+			this.readingDataManager.getMangaList().length === 0) {
+			new Notice('No titles in your watchlog or reading library yet.');
+			return;
+		}
+		if (items.length === 0) {
+			new Notice('Everything is already in upcoming.');
 			return;
 		}
 
-		new InsertWidgetModal(this.plugin.app, available, (title) => {
-			void this.startAddWithTitle(title);
+		new UpcomingFinderModal(this.plugin.app, items, (item) => {
+			if (item.source === 'reading') {
+				const kind = item.kind ?? 'book';
+				const readItem = kind === 'book'
+					? this.readingDataManager.getBook(item.id)
+					: this.readingDataManager.getManga(item.id);
+				if (readItem) this.startAddWithReading(readItem, kind);
+			} else {
+				const title = this.dataManager.getTitle(item.id);
+				if (title) void this.startAddWithTitle(title);
+			}
 		}).open();
+	}
+
+	private startAddWithReading(item: Book | Manga, kind: 'book' | 'manga'): void {
+		const prefilled: AirtimeSchedule | null =
+			item.releaseDate && /^\d{4}-\d{2}-\d{2}$/.test(item.releaseDate)
+				? { recurrence: 'once', releaseDate: item.releaseDate }
+				: null;
+
+		new ReadingScheduleModal(
+			this.plugin.app,
+			item,
+			kind,
+			prefilled,
+			null,
+			null,
+			null,
+			null,
+			async (schedule, volume, chapter, totalVolumes, totalChapters) => {
+				const entry: AirtimeEntry = {
+					id: this.dataManager.generateReadingAirtimeId(item.id),
+					titleId: item.id,
+					source: 'reading',
+					readingKind: kind,
+					schedule,
+					currentSeason: volume ?? undefined,
+					currentEpisode: chapter ?? undefined,
+					totalSeasons: totalVolumes ?? undefined,
+					totalEpisodes: totalChapters ?? undefined,
+					dateAdded: new Date().toISOString(),
+				};
+				await this.dataManager.addAirtimeEntry(entry);
+				await this.syncReadingItemFromSchedule(item.id, kind, schedule, totalVolumes, totalChapters);
+				this.render();
+			},
+		).open();
+	}
+
+	/** Pushes schedule-derived totals / release date back onto the reading item. */
+	private async syncReadingItemFromSchedule(
+		itemId: string,
+		kind: 'book' | 'manga',
+		schedule: AirtimeSchedule,
+		totalVolumes: number | null,
+		totalChapters: number | null,
+	): Promise<void> {
+		if (kind === 'book') {
+			const b = this.readingDataManager.getBook(itemId);
+			if (!b) return;
+			let changed = false;
+			if (totalChapters !== null && totalChapters !== b.totalChapters) { b.totalChapters = totalChapters; changed = true; }
+			// Only write a future 'once' date back (drives auto "To be released"); a
+			// past/due date is left alone so the just-added entry isn't auto-removed.
+			if (schedule.recurrence === 'once' && isReleaseDateFuture(schedule.releaseDate)) {
+				const newDate = schedule.releaseDate ?? null;
+				if (b.releaseDate !== newDate) { b.releaseDate = newDate; changed = true; }
+			}
+			if (changed) await this.readingDataManager.updateBook(b);
+		} else {
+			const m = this.readingDataManager.getManga(itemId);
+			if (!m) return;
+			let changed = false;
+			if (totalChapters !== null && totalChapters !== m.totalChapters) { m.totalChapters = totalChapters; changed = true; }
+			if (totalVolumes !== null && totalVolumes !== m.totalVolumes) { m.totalVolumes = totalVolumes; changed = true; }
+			// Only write a future 'once' date back (drives auto "To be released"); a
+			// past/due date is left alone so the just-added entry isn't auto-removed.
+			if (schedule.recurrence === 'once' && isReleaseDateFuture(schedule.releaseDate)) {
+				const newDate = schedule.releaseDate ?? null;
+				if (m.releaseDate !== newDate) { m.releaseDate = newDate; changed = true; }
+			}
+			if (changed) await this.readingDataManager.updateManga(m);
+		}
+	}
+
+	/**
+	 * On a single-release tick, revert the underlying item's auto "To be released"
+	 * status back to its plan status (watchlist title or reading item).
+	 */
+	private async revertToBeReleasedStatus(entry: AirtimeEntry, r: ResolvedUpcoming): Promise<void> {
+		if (r.source === 'reading') {
+			const kind = entry.readingKind ?? 'book';
+			if (kind === 'book') {
+				const b = this.readingDataManager.getBook(entry.titleId);
+				if (b && b.status === 'To be released') { b.status = 'Plan to Read'; await this.readingDataManager.updateBook(b); }
+			} else {
+				const m = this.readingDataManager.getManga(entry.titleId);
+				if (m && m.status === 'To be released') { m.status = 'Plan to Read'; await this.readingDataManager.updateManga(m); }
+			}
+		} else {
+			const t = this.dataManager.getTitle(entry.titleId);
+			if (t && t.status === 'To be released') { t.status = 'Plan to watch'; await this.dataManager.updateTitle(t); }
+		}
 	}
 
 	private async startAddWithTitle(title: WatchLogTitle): Promise<void> {
@@ -530,7 +753,7 @@ export class AirtimeTab {
 					new Notice('Schedule auto-filled from myanimelist.');
 				}
 			} catch {
-				// ignore — user fills manually
+				// ignore — fields stay empty for manual entry
 			}
 		}
 
@@ -568,7 +791,7 @@ export class AirtimeTab {
 						t.totalEpisodes = totalEpisodes;
 						changed = true;
 					}
-					// Bug 2: sync releaseDate when schedule is 'once'
+					// Sync releaseDate when schedule is 'once'
 					if (schedule.recurrence === 'once') {
 						const newDate = schedule.releaseDate ?? null;
 						if (t.releaseDate !== newDate) {
@@ -597,20 +820,18 @@ export class AirtimeTab {
 			return;
 		}
 
-		const titles = this.dataManager.getTitles();
 		const q = this.searchQuery.trim().toLowerCase();
 
 		const cardData = allEntries
 			.map((entry) => {
-				const title = titles.find((t) => t.id === entry.titleId);
-				if (!title) return null;
-				if (q && !title.title.toLowerCase().includes(q)) return null;
-				const isMovie = title.totalEpisodes <= 1;
-				const countdown = getDetailedCountdown(entry.schedule, isMovie, entry.lastAcknowledgedDate);
-				return { entry, title, countdown };
+				const r = this.resolveEntry(entry);
+				if (!r) return null;
+				if (q && !r.title.toLowerCase().includes(q)) return null;
+				const countdown = getDetailedCountdown(entry.schedule, r.isSingle, entry.lastAcknowledgedDate);
+				return { entry, r, countdown };
 			})
 			.filter(
-				(d): d is { entry: AirtimeEntry; title: WatchLogTitle; countdown: DetailedCountdown } =>
+				(d): d is { entry: AirtimeEntry; r: ResolvedUpcoming; countdown: DetailedCountdown } =>
 					d !== null,
 			)
 			.sort((a, b) => {
@@ -629,8 +850,8 @@ export class AirtimeTab {
 		}
 
 		const cardsEl = this.container.createDiv({ cls: 'wl-airtime-cards' });
-		for (const { entry, title, countdown } of cardData) {
-			this.renderCard(cardsEl, entry, title, countdown);
+		for (const { entry, r, countdown } of cardData) {
+			this.renderCard(cardsEl, entry, r, countdown);
 		}
 	}
 
@@ -639,11 +860,11 @@ export class AirtimeTab {
 	private renderCard(
 		parent: HTMLElement,
 		entry: AirtimeEntry,
-		title: WatchLogTitle,
+		r: ResolvedUpcoming,
 		countdown: DetailedCountdown,
 	): void {
-		const isMovie = title.totalEpisodes <= 1;
-		const totalEps = entry.totalEpisodes ?? title.totalEpisodes;
+		const isMovie = r.isSingle;
+		const totalEps = r.totalUnits;
 		const isFinalEpisode =
 			!isMovie &&
 			entry.currentEpisode !== undefined &&
@@ -686,25 +907,24 @@ export class AirtimeTab {
 
 		// ── Left ──────────────────────────────────────────────────────────────────
 		const left = card.createDiv({ cls: 'wl-airtime-card-left' });
-		left.createDiv({ cls: 'wl-airtime-card-title', text: title.title });
+		left.createDiv({ cls: 'wl-airtime-card-title', text: r.title });
 
-		// Type badge + schedule string (above episode badge per spec)
+		// Type badge + schedule string, above the episode badge. Reading entries
+		// render a plain (theme-driven) badge; watch entries may be colored.
 		const metaRow = left.createDiv({ cls: 'wl-airtime-card-meta' });
-		const typeDef = this.plugin.settings.types.find((t) => t.name === title.type);
-		const colored = this.plugin.settings.coloredTypeBadges;
 		const typeBadge = metaRow.createSpan({
-			cls: colored ? 'wl-badge wl-badge-sm' : 'wl-badge-plain',
-			text: title.type,
+			cls: r.typeColor ? 'wl-badge wl-badge-sm' : 'wl-badge-plain',
+			text: r.typeName,
 		});
-		if (colored && typeDef) typeBadge.style.backgroundColor = getThemedColor(title.type, typeDef.color, this.plugin.settings.colorTheme);
+		if (r.typeColor) typeBadge.style.backgroundColor = r.typeColor;
 		metaRow.createSpan({ cls: 'wl-airtime-schedule', text: getAirtimeScheduleString(entry.schedule) });
 
-		// Episode badge — only for series/anime, positioned below meta row
+		// Progress badge — only for multi-part titles (series / manga), below meta row
 		if (!isMovie && (entry.currentSeason !== undefined || entry.currentEpisode !== undefined)) {
 			const badgeParts: string[] = [];
-			if (entry.currentSeason !== undefined) badgeParts.push(`Season ${entry.currentSeason}`);
-			if (entry.currentEpisode !== undefined) badgeParts.push(`Episode ${entry.currentEpisode}`);
-			badgeParts.push('Airing next');
+			if (entry.currentSeason !== undefined) badgeParts.push(`${r.groupNounCap} ${entry.currentSeason}`);
+			if (entry.currentEpisode !== undefined) badgeParts.push(`${r.unitNounCap} ${entry.currentEpisode}`);
+			badgeParts.push(r.nextLabel);
 			const badgeCls = isFinalEpisode
 				? 'wl-ep-badge wl-ep-badge-final'
 				: 'wl-ep-badge';
@@ -737,14 +957,14 @@ export class AirtimeTab {
 				cls: 'wl-airtime-action-btn wl-airtime-action-btn-tick',
 				text: '✓',
 			});
-			tickBtn.title = isMovie ? 'Mark as released' : (isFinalEpisode ? 'Final episode — mark done' : 'Mark episode as aired');
+			tickBtn.title = isMovie ? 'Mark as released' : (isFinalEpisode ? `Final ${r.unitNoun} — mark done` : `Mark ${r.unitNoun} as aired`);
 			tickBtn.addEventListener('click', (e) => {
 				e.stopPropagation();
 				const confirmMsg = isMovie
-					? `"${title.title}" has been released.\nRemove from Upcoming and set status to Plan to watch?`
+					? `"${r.title}" has been released.\nRemove from Upcoming and set status to ${r.planStatus}?`
 					: isFinalEpisode
-						? `Final episode of "${title.title}" aired.\nRemove from Upcoming? (Watchlist status unchanged)`
-						: `Episode ${entry.currentEpisode ?? ''} of "${title.title}" aired.\nMark and track next episode?`;
+						? `Final ${r.unitNoun} of "${r.title}".\nRemove from Upcoming? (status unchanged)`
+						: `${r.unitNounCap} ${entry.currentEpisode ?? ''} of "${r.title}".\nMark and track next ${r.unitNoun}?`;
 
 				new ConfirmModal(this.plugin.app, confirmMsg, () => {
 					void (async () => {
@@ -755,17 +975,13 @@ export class AirtimeTab {
 
 						if (isMovie) {
 							await this.dataManager.removeAirtimeEntry(entry.id);
-							const t = this.dataManager.getTitle(title.id);
-							if (t && t.status === 'To be released') {
-								t.status = 'Plan to watch';
-								await this.dataManager.updateTitle(t);
-							}
+							await this.revertToBeReleasedStatus(entry, r);
 						} else if (isFinalEpisode) {
-							// Final episode: remove from Upcoming, do NOT change Watchlist status
+							// Final unit: remove from Upcoming, do NOT change status
 							await this.dataManager.removeAirtimeEntry(entry.id);
 						} else {
-							// Non-final episode: increment episode and record acknowledgement date
-							// so the countdown resets to the next occurrence immediately.
+							// Non-final: increment the unit (episode/chapter) and record
+							// the acknowledgement date so the countdown resets immediately.
 							entry.currentEpisode = (entry.currentEpisode ?? 1) + 1;
 							entry.lastAcknowledgedDate = todayStr;
 							await this.dataManager.updateAirtimeEntry(entry);
@@ -781,70 +997,107 @@ export class AirtimeTab {
 		globeBtn.title = 'Open page';
 		globeBtn.addEventListener('click', (e) => {
 			e.stopPropagation();
-			if (title.externalLink) {
-				window.open(title.externalLink, '_blank');
+			if (r.externalLink) {
+				activeWindow.open(r.externalLink, '_blank');
 			} else {
 				new Notice('No external link set for this title.');
 			}
 		});
 
-		// Edit — open schedule modal
+		// Edit — open the schedule modal matching the entry's source
 		const editBtn = actions.createEl('button', { cls: 'wl-airtime-action-btn', text: '✏' });
 		editBtn.title = 'Edit schedule';
 		editBtn.addEventListener('click', (e) => {
 			e.stopPropagation();
-			new AirtimeScheduleModal(
-				this.plugin.app,
-				title,
-				{ ...entry.schedule },
-				entry.currentSeason ?? null,
-				entry.currentEpisode ?? null,
-				entry.totalSeasons ?? null,
-				entry.totalEpisodes ?? null,
-				async (schedule, season, episode, totalSeasons, totalEpisodes) => {
-					entry.schedule = schedule;
-					entry.currentSeason = season ?? undefined;
-					entry.currentEpisode = episode ?? undefined;
-					entry.totalSeasons = totalSeasons ?? undefined;
-					entry.totalEpisodes = totalEpisodes ?? undefined;
-					await this.dataManager.updateAirtimeEntry(entry);
-
-					// Sync back to Watchlist title
-					const currentTitle = this.dataManager.getTitle(entry.titleId);
-					if (currentTitle) {
-						let changed = false;
-						if (totalEpisodes !== null && totalEpisodes !== currentTitle.totalEpisodes) {
-							currentTitle.totalEpisodes = totalEpisodes;
-							changed = true;
-						}
-						// Bug 2: sync releaseDate when schedule is 'once'
-						if (schedule.recurrence === 'once') {
-							const newDate = schedule.releaseDate ?? null;
-							if (currentTitle.releaseDate !== newDate) {
-								currentTitle.releaseDate = newDate;
-								changed = true;
-							}
-						}
-						if (changed) await this.dataManager.updateTitle(currentTitle);
-					}
-
-					this.render();
-				},
-			).open();
+			if (r.source === 'reading') {
+				this.openEditReadingSchedule(entry);
+			} else {
+				this.openEditWatchSchedule(entry);
+			}
 		});
 
-		// Delete — with confirmation (Feature 1)
+		// Delete — with confirmation
 		const deleteBtn = actions.createEl('button', {
-			cls: 'wl-airtime-action-btn wl-airtime-action-btn-delete',
+			cls: 'wl-airtime-action-btn wl-airtime-action-btn-delete wl-btn-danger',
 			text: '✕',
 		});
 		deleteBtn.title = 'Remove from upcoming';
 		deleteBtn.addEventListener('click', (e) => {
 			e.stopPropagation();
-			new ConfirmModal(this.plugin.app, `Remove "${title.title}" from Upcoming?`, () => {
+			new ConfirmModal(this.plugin.app, `Remove "${r.title}" from Upcoming?`, () => {
 				void this.dataManager.removeAirtimeEntry(entry.id).then(() => this.render());
 			}).open();
 		});
+	}
+
+	private openEditWatchSchedule(entry: AirtimeEntry): void {
+		const title = this.dataManager.getTitle(entry.titleId);
+		if (!title) return;
+		new AirtimeScheduleModal(
+			this.plugin.app,
+			title,
+			{ ...entry.schedule },
+			entry.currentSeason ?? null,
+			entry.currentEpisode ?? null,
+			entry.totalSeasons ?? null,
+			entry.totalEpisodes ?? null,
+			async (schedule, season, episode, totalSeasons, totalEpisodes) => {
+				entry.schedule = schedule;
+				entry.currentSeason = season ?? undefined;
+				entry.currentEpisode = episode ?? undefined;
+				entry.totalSeasons = totalSeasons ?? undefined;
+				entry.totalEpisodes = totalEpisodes ?? undefined;
+				await this.dataManager.updateAirtimeEntry(entry);
+
+				// Sync back to Watchlist title
+				const currentTitle = this.dataManager.getTitle(entry.titleId);
+				if (currentTitle) {
+					let changed = false;
+					if (totalEpisodes !== null && totalEpisodes !== currentTitle.totalEpisodes) {
+						currentTitle.totalEpisodes = totalEpisodes;
+						changed = true;
+					}
+					// Sync releaseDate when schedule is 'once'
+					if (schedule.recurrence === 'once') {
+						const newDate = schedule.releaseDate ?? null;
+						if (currentTitle.releaseDate !== newDate) {
+							currentTitle.releaseDate = newDate;
+							changed = true;
+						}
+					}
+					if (changed) await this.dataManager.updateTitle(currentTitle);
+				}
+
+				this.render();
+			},
+		).open();
+	}
+
+	private openEditReadingSchedule(entry: AirtimeEntry): void {
+		const kind = entry.readingKind ?? 'book';
+		const item: Book | Manga | undefined =
+			kind === 'book' ? this.readingDataManager.getBook(entry.titleId) : this.readingDataManager.getManga(entry.titleId);
+		if (!item) return;
+		new ReadingScheduleModal(
+			this.plugin.app,
+			item,
+			kind,
+			{ ...entry.schedule },
+			entry.currentSeason ?? null,   // volume
+			entry.currentEpisode ?? null,  // chapter
+			entry.totalSeasons ?? null,    // total volumes
+			entry.totalEpisodes ?? null,   // total chapters
+			async (schedule, volume, chapter, totalVolumes, totalChapters) => {
+				entry.schedule = schedule;
+				entry.currentSeason = volume ?? undefined;
+				entry.currentEpisode = chapter ?? undefined;
+				entry.totalSeasons = totalVolumes ?? undefined;
+				entry.totalEpisodes = totalChapters ?? undefined;
+				await this.dataManager.updateAirtimeEntry(entry);
+				await this.syncReadingItemFromSchedule(entry.titleId, kind, schedule, totalVolumes, totalChapters);
+				this.render();
+			},
+		).open();
 	}
 }
 
@@ -887,7 +1140,7 @@ class AirtimeScheduleModal extends Modal {
 		this.schedule = existingSchedule
 			? { ...existingSchedule }
 			: { recurrence: isMovie ? 'once' : 'weekly' };
-		// Fix 9: pre-fill releaseDate from title if the schedule doesn't have one yet
+		// Pre-fill releaseDate from title if the schedule doesn't have one yet
 		if (!this.schedule.releaseDate && title.releaseDate && /^\d{4}-\d{2}-\d{2}$/.test(title.releaseDate)) {
 			this.schedule.releaseDate = title.releaseDate;
 		}
@@ -979,11 +1232,11 @@ class AirtimeScheduleModal extends Modal {
    				 ? this.schedule.releaseDate.split('-').reverse().join('/') 
     			: '';
 			dateInput.addEventListener('change', () => {
-    			const parts = dateInput.value.split('/');
-    				if (parts.length === 3) {
-        				this.schedule.recurrence = 'once';
-        					this.schedule.releaseDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
-   					 }
+				const parsed = parseDateInput(dateInput.value);
+				if (parsed) {
+					this.schedule.recurrence = 'once';
+					this.schedule.releaseDate = parsed;
+				}
 			});
 
 			makeTimeRow('Time (optional)', content);
@@ -1019,10 +1272,10 @@ class AirtimeScheduleModal extends Modal {
     					? this.schedule.releaseDate.split('-').reverse().join('/') 
     					: '';
 					inp.addEventListener('change', () => {
-    					const parts = inp.value.split('/');
-    					if (parts.length === 3) {
-        					this.schedule.releaseDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
-    					}
+						const parsed = parseDateInput(inp.value);
+						if (parsed) {
+							this.schedule.releaseDate = parsed;
+						}
 					});
 				}
 
@@ -1078,7 +1331,7 @@ class AirtimeScheduleModal extends Modal {
 			if (this.currentEpisode !== null) epInput.value = String(this.currentEpisode);
 			epInput.addEventListener('input', () => { this.currentEpisode = parseInt(epInput.value) || null; });
 
-			// ── Feature 4: Total seasons + total episodes ────────────────────────────
+			// ── Total seasons + total episodes ───────────────────────────────────────
 			const totSeasRow = makeRow('Total seasons');
 			const totSeasInput = totSeasRow.createEl('input', {
 				cls: 'wl-modal-input wl-modal-input-sm',
@@ -1095,7 +1348,7 @@ class AirtimeScheduleModal extends Modal {
 			if (this.totalEpisodes !== null) totEpInput.value = String(this.totalEpisodes);
 			totEpInput.addEventListener('input', () => { this.totalEpisodes = parseInt(totEpInput.value) || null; });
 
-			// Static hint note (always visible per spec)
+			// Static hint note (always visible)
 			content.createDiv({
 				cls: 'wl-modal-info wl-schedule-hint',
 				text: 'Titles with 0 or 1 total episodes will be treated as a single release date, like a movie.',

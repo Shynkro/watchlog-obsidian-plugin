@@ -4,16 +4,56 @@ import type { DataManager } from './DataManager';
 import type { WatchLogTitle, Season } from './types';
 import { formatDateDisplay, parseDateInput, parseReleaseDateInput } from './types';
 
-/** Parses a seasons textarea (one line per season: "Name: N") back to Season[]. */
+/** Parses "5,8,33-37,42" into a sorted unique flat array of numbers. */
+function parseSkipSpec(spec: string): number[] {
+	const result: number[] = [];
+	for (const part of spec.split(',').map((s) => s.trim()).filter(Boolean)) {
+		const rangeParts = part.split('-');
+		if (rangeParts.length === 2) {
+			const from = parseInt(rangeParts[0] ?? '0', 10);
+			const to = parseInt(rangeParts[1] ?? '0', 10);
+			if (!isNaN(from) && !isNaN(to) && from <= to) {
+				for (let i = from; i <= to; i++) result.push(i);
+			}
+		} else {
+			const n = parseInt(part, 10);
+			if (!isNaN(n)) result.push(n);
+		}
+	}
+	return [...new Set(result)].sort((a, b) => a - b);
+}
+
+/** Serializes a sorted number array into a compact skip-spec string like "5,8,33-37,42". */
+function serializeSkipSpec(nums: number[]): string {
+	if (nums.length === 0) return '';
+	const sorted = [...new Set(nums)].sort((a, b) => a - b);
+	const parts: string[] = [];
+	let i = 0;
+	while (i < sorted.length) {
+		let j = i;
+		while (j + 1 < sorted.length && sorted[j + 1] === (sorted[j] as number) + 1) j++;
+		if (j > i) {
+			parts.push(`${sorted[i]}-${sorted[j]}`);
+		} else {
+			parts.push(String(sorted[i]));
+		}
+		i = j + 1;
+	}
+	return parts.join(',');
+}
+
+/** Parses a seasons textarea (one line per season: "Name: N" or "Name: N (skip_spec)") back to Season[]. */
 function parseSeasonsText(text: string): Season[] {
 	const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
 	const seasons: Season[] = [];
 	let offset = 0;
 	for (const line of lines) {
-		const match = line.match(/^(.+?):\s*(\d+)/);
+		// Match "Name: N" optionally followed by " (skip_spec)"
+		const match = line.match(/^(.+?):\s*(\d+)(?:\s*\(([^)]+)\))?/);
 		if (match && match[1] && match[2]) {
-			const eps = parseInt(match[2]);
-			seasons.push({ name: match[1].trim(), episodes: eps, offset });
+			const eps = parseInt(match[2], 10);
+			const skippedEpisodes = match[3] ? parseSkipSpec(match[3]) : [];
+			seasons.push({ name: match[1].trim(), episodes: eps, offset, skippedEpisodes });
 			offset += eps;
 		}
 	}
@@ -21,7 +61,13 @@ function parseSeasonsText(text: string): Season[] {
 }
 
 function seasonsToText(seasons: Season[]): string {
-	return seasons.map((s) => `${s.name}: ${s.episodes}`).join('\n');
+	return seasons.map((s) => {
+		const base = `${s.name}: ${s.episodes}`;
+		if (s.skippedEpisodes && s.skippedEpisodes.length > 0) {
+			return `${base} (${serializeSkipSpec(s.skippedEpisodes)})`;
+		}
+		return base;
+	}).join('\n');
 }
 
 export class EditTitleModal extends Modal {
@@ -45,6 +91,7 @@ export class EditTitleModal extends Modal {
 	private fieldNotes: string;
 	private fieldDateStarted: string;
 	private fieldDateFinished: string;
+	private fieldPosterUrl: string;
 	private skipDuplicateCheck = false;
 	private duplicateWarningEl: HTMLElement | null = null;
 
@@ -71,11 +118,12 @@ export class EditTitleModal extends Modal {
 		this.fieldSeasonsText = seasonsToText(title.seasons);
 		this.fieldStatus = title.status;
 		this.fieldPriority = title.priority;
-		this.fieldReview = (title as unknown as { review?: string }).review ?? '';
+		this.fieldReview = title.review ?? '';
 		this.fieldRating = title.rating;
 		this.fieldNotes = title.notes;
 		this.fieldDateStarted = title.dateStarted ?? '';
 		this.fieldDateFinished = title.dateFinished ?? '';
+		this.fieldPosterUrl = title.manualPosterUrl ?? '';
 	}
 
 	onOpen(): void {
@@ -161,7 +209,26 @@ export class EditTitleModal extends Modal {
 			attr: { type: 'number', min: '0' },
 		});
 		epsInput.value = String(this.fieldEpisodes);
-		epsInput.addEventListener('input', () => { this.fieldEpisodes = parseInt(epsInput.value) || 0; });
+		const epsSkipLabel = epsRow.createSpan({ cls: 'wl-modal-skip-inline' });
+		const epsWatchLabel = epsRow.createSpan({ cls: 'wl-modal-skip-inline' });
+
+		const updateSkipCounts = (): void => {
+			const parsed = parseSeasonsText(this.fieldSeasonsText);
+			const totalSkipped = parsed.reduce((sum, s) => sum + (s.skippedEpisodes?.length ?? 0), 0);
+			if (totalSkipped === 0) {
+				epsSkipLabel.textContent = '';
+				epsWatchLabel.textContent = '';
+				return;
+			}
+			const toWatch = Math.max(0, this.fieldEpisodes - totalSkipped);
+			epsSkipLabel.textContent = `· ${totalSkipped} to skip`;
+			epsWatchLabel.textContent = `· ${toWatch} to watch`;
+		};
+
+		epsInput.addEventListener('input', () => {
+			this.fieldEpisodes = parseInt(epsInput.value) || 0;
+			updateSkipCounts();
+		});
 
 		// Duration
 		const durRow = makeRow('Ep. duration (min)');
@@ -208,6 +275,20 @@ export class EditTitleModal extends Modal {
 		});
 		linkInput.value = this.fieldLink;
 		linkInput.addEventListener('input', () => { this.fieldLink = linkInput.value; });
+
+		// Poster URL (manual override) — directly under External link
+		const posterRow = makeRow('Poster URL');
+		const posterStack = posterRow.createDiv({ cls: 'wl-modal-input-stack' });
+		const posterInput = posterStack.createEl('input', {
+			cls: 'wl-modal-input',
+			attr: { type: 'url', placeholder: 'https://example.com/poster.jpg' },
+		});
+		posterInput.value = this.fieldPosterUrl;
+		posterInput.addEventListener('input', () => { this.fieldPosterUrl = posterInput.value; });
+		posterStack.createDiv({
+			cls: 'wl-modal-info',
+			text: 'Override the auto-fetched cover. Leave blank to let WatchLog fetch one again.',
+		});
 
 		// Date started
 		const startRow = makeRow('Date started');
@@ -257,7 +338,7 @@ export class EditTitleModal extends Modal {
 		const seasonsHelp = seasonsRow.createDiv({ cls: 'wl-modal-input-stack' });
 		const seasonsInput = seasonsHelp.createEl('textarea', {
 			cls: 'wl-modal-textarea',
-			attr: { rows: '4', placeholder: 'Season 1: 12\nseason 2: 13' },
+			attr: { rows: '4', placeholder: 'Season 1: 12\nSeason 2: 13 (5,8,33-37)' },
 		});
 		seasonsInput.value = this.fieldSeasonsText;
 
@@ -265,18 +346,27 @@ export class EditTitleModal extends Modal {
 		const updateTotalPreview = (): void => {
 			const parsed = parseSeasonsText(seasonsInput.value);
 			const total = parsed.reduce((sum, s) => sum + s.episodes, 0);
-			totalPreviewEl.textContent = `Total episodes: ${total}`;
+			const totalSkipped = parsed.reduce((sum, s) => sum + (s.skippedEpisodes?.length ?? 0), 0);
+			totalPreviewEl.textContent = totalSkipped > 0
+				? `Total episodes: ${total} · ${totalSkipped} to skip`
+				: `Total episodes: ${total}`;
 		};
 		updateTotalPreview();
+		updateSkipCounts();
 
 		seasonsInput.addEventListener('input', () => {
 			this.fieldSeasonsText = seasonsInput.value;
 			updateTotalPreview();
+			updateSkipCounts();
 		});
 
 		seasonsHelp.createDiv({
 			cls: 'wl-modal-info',
-			text: 'One per line: "Season Name: N" (e.g. "Season 1: 12")',
+			text: 'Format: "Season Name: N" (e.g. "Season 1: 12")',
+		});
+		seasonsHelp.createDiv({
+			cls: 'wl-modal-info',
+			text: 'Skip episodes: add "(1,3,5-10)" after count (e.g. "Season 1: 48 (33-37)")',
 		});
 		seasonsHelp.createDiv({
 			cls: 'wl-modal-info',
@@ -349,6 +439,7 @@ export class EditTitleModal extends Modal {
 			seasons,
 			dateStarted: this.fieldDateStarted || null,
 			dateFinished: this.fieldDateFinished || null,
+			manualPosterUrl: this.fieldPosterUrl.trim(),
 		};
 
 		// Auto-mark all episodes watched when status is set to Completed
@@ -358,7 +449,7 @@ export class EditTitleModal extends Modal {
 
 		await this.dataManager.updateTitle(updated);
 
-		// Bug 2: sync updated releaseDate to any existing 'once' airtime entry
+		// Sync updated releaseDate to any existing 'once' airtime entry
 		const allEntries = this.dataManager.getAirtimeEntries();
 		const existingAirtimeEntry = allEntries.find((e) => e.titleId === updated.id);
 		if (existingAirtimeEntry && existingAirtimeEntry.schedule.recurrence === 'once') {

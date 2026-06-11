@@ -28,28 +28,44 @@ function titlesToCsv(titles: WatchLogTitle[]): string {
 	return [header, ...rows].join('\n');
 }
 
-function parseCsvRow(row: string): string[] {
-	const fields: string[] = [];
+/** Full CSV parser: handles quoted fields with embedded newlines, escaped quotes, comma delimiters. */
+function parseCSV(text: string): string[][] {
+	const rows: string[][] = [];
+	let row: string[] = [];
 	let cur = '';
 	let inQuotes = false;
-	for (let i = 0; i < row.length; i++) {
-		const ch = row[i];
-		if (ch === '"') {
-			if (inQuotes && row[i + 1] === '"') {
-				cur += '"';
-				i++;
+	// Normalize CRLF to LF
+	const t = text.replace(/\r\n?/g, '\n');
+	for (let i = 0; i < t.length; i++) {
+		const ch = t[i];
+		if (inQuotes) {
+			if (ch === '"') {
+				if (t[i + 1] === '"') { cur += '"'; i++; }
+				else { inQuotes = false; }
 			} else {
-				inQuotes = !inQuotes;
+				cur += ch;
 			}
-		} else if (ch === ',' && !inQuotes) {
-			fields.push(cur);
-			cur = '';
 		} else {
-			cur += ch;
+			if (ch === '"') {
+				inQuotes = true;
+			} else if (ch === ',') {
+				row.push(cur); cur = '';
+			} else if (ch === '\n') {
+				row.push(cur); cur = '';
+				rows.push(row); row = [];
+			} else {
+				cur += ch;
+			}
 		}
 	}
-	fields.push(cur);
-	return fields;
+	// Final field/row
+	if (cur.length > 0 || row.length > 0) {
+		row.push(cur);
+		rows.push(row);
+	}
+	// Drop trailing fully-empty rows
+	while (rows.length > 0 && rows[rows.length - 1]!.every((c) => c === '')) rows.pop();
+	return rows;
 }
 
 // ── Date parsing ─────────────────────────────────────────────────────────────
@@ -136,6 +152,7 @@ const WL_IMPORT_FIELDS: WlFieldDef[] = [
 	{ key: 'dateFinished',   label: 'Date Finished', autoDetect: ['finished', 'datefinished', 'date finished', 'date_finished', 'end date', 'finish date', 'completed date'] },
 	{ key: 'releaseDate',    label: 'Release Date',  autoDetect: ['releasedate', 'release date', 'release_date', 'air date', 'airdate'] },
 	{ key: 'externalLink',   label: 'Link',          autoDetect: ['link', 'externallink', 'external link', 'external_link', 'url'] },
+	{ key: 'notes',          label: 'Notes',         autoDetect: ['notes', 'note', 'comment', 'comments'] },
 ];
 
 function autoMap(headers: string[]): Record<string, string> {
@@ -148,19 +165,17 @@ function autoMap(headers: string[]): Record<string, string> {
 }
 
 function applyMapping(
-	lines: string[],
+	rows: string[][],
 	mapping: Record<string, string>,
 	dataManager: DataManager,
 ): { entry: Partial<WatchLogTitle>; isDuplicate: boolean }[] {
-	if (lines.length < 2) return [];
-	const headerLine = lines[0] ?? '';
-	const headers = parseCsvRow(headerLine).map((h) => h.trim());
+	if (rows.length < 2) return [];
+	const headers = (rows[0] ?? []).map((h) => h.trim());
 	const existingTitles = dataManager.getTitles();
 
-	return lines.slice(1)
-		.filter((l) => l.trim())
-		.map((line) => {
-			const values = parseCsvRow(line);
+	return rows.slice(1)
+		.filter((r) => r.some((c) => c.trim()))
+		.map((values) => {
 			const get = (fieldKey: string): string => {
 				const colName = mapping[fieldKey];
 				if (!colName) return '';
@@ -179,7 +194,10 @@ function applyMapping(
 			const priorityVal = get('priority');
 			if (priorityVal) entry.priority = priorityVal;
 			const ratingVal = get('rating');
-			if (ratingVal) entry.rating = parseFloat(ratingVal) || 0;
+			if (ratingVal) {
+				const r = parseFloat(ratingVal) || 0;
+				entry.rating = Math.max(0, Math.min(5, r));
+			}
 			const epsVal = get('totalEpisodes');
 			if (epsVal) entry.totalEpisodes = parseInt(epsVal) || 0;
 			const durVal = get('episodeDuration');
@@ -192,11 +210,14 @@ function applyMapping(
 			if (releaseDateRaw) { const d = parseCsvDate(releaseDateRaw); if (d) entry.releaseDate = d; }
 			const linkVal = get('externalLink');
 			if (linkVal) entry.externalLink = linkVal;
+			const notesVal = get('notes');
+			if (notesVal) entry.notes = notesVal;
 
 			// Skip rows where all mapped fields resolved to empty
 			const isEmpty = !entry.title?.trim() && !entry.type && !entry.status
 				&& !entry.rating && !entry.totalEpisodes && !entry.episodeDuration
-				&& !entry.dateStarted && !entry.dateFinished && !entry.releaseDate && !entry.externalLink;
+				&& !entry.dateStarted && !entry.dateFinished && !entry.releaseDate && !entry.externalLink
+				&& !entry.notes;
 			if (isEmpty) return null;
 
 			const isDuplicate = !!existingTitles.find(
@@ -233,7 +254,7 @@ export class CsvModal extends Modal {
 	private selectedIds = new Set<string>();
 
 	// Import state — shared across steps
-	private csvLines: string[] = [];
+	private csvRows: string[][] = [];
 	private csvHeaders: string[] = [];
 	private columnMapping: Record<string, string> = {};
 	private importRows: { entry: Partial<WatchLogTitle>; isDuplicate: boolean; selected: boolean }[] = [];
@@ -347,7 +368,7 @@ export class CsvModal extends Modal {
 			const csv = titlesToCsv(toExport);
 			const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
 			const url = URL.createObjectURL(blob);
-			const a = document.createElement('a');
+			const a = activeDocument.createElement('a');
 			const today = new Date();
 			const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 			a.href = url;
@@ -418,9 +439,8 @@ export class CsvModal extends Modal {
 			const reader = new FileReader();
 			reader.onload = (ev) => {
 				const text = ev.target?.result as string;
-				this.csvLines = text.split('\n');
-				const headerLine = this.csvLines[0] ?? '';
-				this.csvHeaders = parseCsvRow(headerLine).map((h) => h.trim());
+				this.csvRows = parseCSV(text);
+				this.csvHeaders = (this.csvRows[0] ?? []).map((h) => h.trim());
 				this.columnMapping = autoMap(this.csvHeaders);
 				this.showMappingStep();
 			};
@@ -474,7 +494,7 @@ export class CsvModal extends Modal {
 				this.columnMapping[field.key] = selectEls[field.key]?.value ?? '';
 			}
 			// Parse rows with current column mapping
-			this.importRows = applyMapping(this.csvLines, this.columnMapping, this.dataManager)
+			this.importRows = applyMapping(this.csvRows, this.columnMapping, this.dataManager)
 				.map((r) => ({ ...r, selected: !r.isDuplicate }));
 
 			// Check for unknown status/type values and non-numeric ratings
@@ -502,13 +522,11 @@ export class CsvModal extends Modal {
 				// Detect non-numeric rating values (r.entry.rating would be 0 from parseFloat on non-numeric)
 				const ratingColName = this.columnMapping['rating'];
 				if (ratingColName) {
-					const headerLine = this.csvLines[0] ?? '';
-					const headers = parseCsvRow(headerLine).map((h) => h.trim());
+					const headers = (this.csvRows[0] ?? []).map((h) => h.trim());
 					const ratingIdx = headers.indexOf(ratingColName);
 					if (ratingIdx >= 0) {
 						const lineIdx = this.importRows.indexOf(r);
-						const rawLine = this.csvLines[lineIdx + 1] ?? '';
-						const rawValues = parseCsvRow(rawLine);
+						const rawValues = this.csvRows[lineIdx + 1] ?? [];
 						const rawRating = (rawValues[ratingIdx] ?? '').trim();
 						if (rawRating && isNaN(parseFloat(rawRating)) && !seenRatings.has(rawRating)) {
 							unknownRatings.push(rawRating);
@@ -658,16 +676,13 @@ export class CsvModal extends Modal {
 			}
 			// Rating — map non-numeric value to numeric
 			const rawRatingKey = Object.keys(this.ratingValueMap).find((k) => {
-				// Find if this row's original CSV rating matched this key
 				const ratingColName = this.columnMapping['rating'];
 				if (!ratingColName) return false;
-				const headerLine = this.csvLines[0] ?? '';
-				const headers = parseCsvRow(headerLine).map((h) => h.trim());
+				const headers = (this.csvRows[0] ?? []).map((h) => h.trim());
 				const ratingIdx = headers.indexOf(ratingColName);
 				if (ratingIdx < 0) return false;
 				const rowIdx = this.importRows.indexOf(r);
-				const rawLine = this.csvLines[rowIdx + 1] ?? '';
-				const rawValues = parseCsvRow(rawLine);
+				const rawValues = this.csvRows[rowIdx + 1] ?? [];
 				return (rawValues[ratingIdx] ?? '').trim() === k;
 			});
 			if (rawRatingKey !== undefined) {
@@ -819,62 +834,62 @@ export class CsvModal extends Modal {
 		const CHUNK_SIZE = 10;
 		let added = 0;
 
-		for (let chunkStart = 0; chunkStart < toImport.length; chunkStart += CHUNK_SIZE) {
-			if (this.importCancelled) break;
-
-			const chunkEnd = Math.min(chunkStart + CHUNK_SIZE, toImport.length);
-			for (let i = chunkStart; i < chunkEnd; i++) {
+		try {
+			for (let chunkStart = 0; chunkStart < toImport.length; chunkStart += CHUNK_SIZE) {
 				if (this.importCancelled) break;
 
-				const r = toImport[i]!;
-				const titleName = r.entry.title!.trim();
-				const entry: WatchLogTitle = {
-					id: this.dataManager.generateId(titleName),
-					title: titleName,
-					type: r.entry.type?.trim() || this.plugin.settings.types[0]?.name || 'Anime',
-					status: r.entry.status || 'Plan to watch',
-					priority: r.entry.priority || 'Medium',
-					review: '',
-					rating: r.entry.rating ?? 0,
-					notes: '',
-					dateStarted: r.entry.dateStarted ?? null,
-					dateFinished: r.entry.dateFinished ?? null,
-					dateAdded: new Date().toISOString(),
-					dateModified: new Date().toISOString(),
-					totalEpisodes: r.entry.totalEpisodes ?? 0,
-					episodeDuration: r.entry.episodeDuration ?? 0,
-					releaseDate: r.entry.releaseDate ?? null,
-					externalLink: r.entry.externalLink ?? '',
-					seasons: [],
-					watchedEpisodes: [],
-				};
-
-				if (entry.status === 'Completed' && entry.totalEpisodes > 0) {
-					entry.watchedEpisodes = Array.from({ length: entry.totalEpisodes }, (_, k) => k + 1);
+				const chunkEnd = Math.min(chunkStart + CHUNK_SIZE, toImport.length);
+				const chunkEntries: WatchLogTitle[] = [];
+				for (let i = chunkStart; i < chunkEnd; i++) {
+					if (this.importCancelled) break;
+					const r = toImport[i]!;
+					const titleName = r.entry.title!.trim();
+					const entry: WatchLogTitle = {
+						id: this.dataManager.generateId(titleName),
+						title: titleName,
+						type: r.entry.type?.trim() || this.plugin.settings.types[0]?.name || 'Anime',
+						status: r.entry.status || 'Plan to watch',
+						priority: r.entry.priority || 'Medium',
+						review: '',
+						rating: r.entry.rating ?? 0,
+						notes: r.entry.notes ?? '',
+						dateStarted: r.entry.dateStarted ?? null,
+						dateFinished: r.entry.dateFinished ?? null,
+						dateAdded: new Date().toISOString(),
+						dateModified: new Date().toISOString(),
+						totalEpisodes: r.entry.totalEpisodes ?? 0,
+						episodeDuration: r.entry.episodeDuration ?? 0,
+						releaseDate: r.entry.releaseDate ?? null,
+						externalLink: r.entry.externalLink ?? '',
+						seasons: [],
+						watchedEpisodes: [],
+					};
+					if (entry.status === 'Completed' && entry.totalEpisodes > 0) {
+						entry.watchedEpisodes = Array.from({ length: entry.totalEpisodes }, (_, k) => k + 1);
+					}
+					chunkEntries.push(entry);
 				}
 
-				this.plugin.importProgress = { current: added + 1, total: toImport.length, cancel: cancelFn };
-				await this.dataManager.addTitleSilent(entry);
-				added++;
+				if (chunkEntries.length === 0) break;
+				await this.dataManager.addTitleBatch(chunkEntries);
+				added += chunkEntries.length;
 
+				this.plugin.importProgress = { current: added, total: toImport.length, cancel: cancelFn };
 				const pct = Math.round((added / toImport.length) * 100);
 				if (this.progressBarFill) this.progressBarFill.style.width = `${pct}%`;
 				if (this.progressText) this.progressText.textContent = `${added} / ${toImport.length}`;
 			}
+		} finally {
+			this.isImporting = false;
+			this.plugin.importProgress = null;
+			this.dataManager.notifyChange();
 		}
-
-		this.isImporting = false;
-
-		// Clear header progress bar and trigger a final UI refresh
-		this.plugin.importProgress = null;
-		this.dataManager.notifyChange();
 
 		const newTypesMsg = typesToCreate.size > 0
 			? ` (${typesToCreate.size} new type${typesToCreate.size !== 1 ? 's' : ''} created)`
 			: '';
 
 		if (this.importCancelled) {
-			// Import was cancelled — stay open so user can see what was imported
 			if (this.progressText) {
 				this.progressText.textContent = `Cancelled — ${added} / ${toImport.length} imported`;
 			}
@@ -884,7 +899,6 @@ export class CsvModal extends Modal {
 			}
 			new Notice(`Import cancelled. ${added} title${added !== 1 ? 's' : ''} imported.`);
 		} else {
-			// All done — show success state, then close
 			if (this.progressText) {
 				this.progressText.textContent = `Done — ${added} imported`;
 			}

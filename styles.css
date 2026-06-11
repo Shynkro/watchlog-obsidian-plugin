@@ -57,6 +57,14 @@
   padding: 12px 10px;
 }
 
+/* Mobile keyboard fix: WatchLogView pins the tab content to an explicit px
+   height (passed via --wl-pinned-tab-height) while an editor is focused.
+   The two-class selector outranks the flex base rule above. */
+.wl-tab-content.wl-tab-content-pinned {
+  flex: none;
+  height: var(--wl-pinned-tab-height);
+}
+
 /* ════════════════════════════════════════════════════════
    DASHBOARD TAB
    ════════════════════════════════════════════════════════ */
@@ -77,7 +85,7 @@
 }
 
 /* ── Unified Total / Time card ──────────────────────────── */
-/* The two vertical dividers are rendered as 1px grid column-gaps that reveal the
+/* The two vertical dividers are rendered as 1px grid gaps that reveal the
    card's background colour. A 1px child border-left did not paint reliably at the
    exact column boundary, so the gap-reveal technique is used instead: the gaps
    always span the full row height and are guaranteed to paint. */
@@ -86,7 +94,7 @@
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   align-items: stretch;
-  column-gap: 1px;
+  gap: 0 1px;
   background-color: var(--background-modifier-border); /* shows through the gaps */
   border-radius: 8px;
   overflow: hidden;
@@ -1012,8 +1020,16 @@
   font-style: italic;
 }
 
-.wl-input-error {
-  border-color: var(--text-error) !important;
+/* Doubled class (+ :focus variant) outranks Obsidian's `input[type=…]` /
+   `input[type=…]:focus` border rules and `.wl-modal-input:focus` above. */
+.wl-input-error.wl-input-error,
+.wl-input-error.wl-input-error:focus {
+  border-color: var(--text-error);
+}
+
+/* Full-width text input (group rename prompt). */
+.wl-input {
+  width: 100%;
 }
 
 .wl-modal-textarea {
@@ -1480,6 +1496,12 @@
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
   min-width: 168px;
   padding: 4px 0;
+}
+
+/* Popovers anchored to a button via dynamic top/left (ReadingTab) instead of
+   the default right-aligned drop placement. */
+.wl-dropdown.wl-popover-anchored {
+  right: auto;
 }
 
 /* ── Group header row ────────────────────────────────────── */
@@ -1955,9 +1977,11 @@
   gap: 5px;
 }
 
-/* Selected row highlight */
-.wl-row-selected {
-  background: color-mix(in srgb, var(--background-secondary) 80%, var(--interactive-accent) 20%) !important;
+/* Selected row highlight — scoped to .wl-row and given a :hover variant so it
+   outranks .wl-row:hover / .wl-row.is-expanded / .wl-table .wl-group-row. */
+.wl-row.wl-row-selected,
+.wl-row.wl-row-selected:hover {
+  background: color-mix(in srgb, var(--background-secondary) 80%, var(--interactive-accent) 20%);
 }
 
 /* Selection checkbox column */
@@ -2552,6 +2576,11 @@
   padding: 2px 12px 6px;
 }
 
+/* Wrapper around the Apply button at the bottom of the filter popover. */
+.wl-filter-apply-wrap {
+  padding: 6px 12px 2px;
+}
+
 .wl-filter-section .wl-filter-label {
   display: block;
   margin-bottom: 4px;
@@ -2826,7 +2855,7 @@
 }
 
 .wl-csv-btn-row {
-  flex-direction: row !important;
+  flex-direction: row;
   justify-content: flex-end;
 }
 
@@ -3295,8 +3324,13 @@
   opacity: 0.4;
 }
 
-.wl-cl-drag-over {
-  border-top: 2px solid var(--interactive-accent) !important;
+/* Element+state selectors per drop target outrank each target's own border
+   rules (e.g. the .wl-cl-sub-tab border shorthand). */
+.wl-cl-sub-tab.wl-cl-drag-over,
+.wl-cl-tr-body.wl-cl-drag-over,
+.wl-editcol-card.wl-cl-drag-over,
+.wl-reading-col-card.wl-cl-drag-over {
+  border-top: 2px solid var(--interactive-accent);
 }
 
 /* ── Cell content ─────────────────────────────────────────── */
@@ -3319,10 +3353,14 @@
 
 /* ── Editing state ────────────────────────────────────────── */
 .wl-cl-editing {
-  padding: 0 4px !important;
   overflow: visible;
   z-index: 10;
   position: relative;
+}
+
+/* Cell scope outranks the .wl-cl-td base padding. */
+.wl-cl-td.wl-cl-editing {
+  padding: 0 4px;
 }
 
 .wl-cl-cell-input {
@@ -4143,9 +4181,22 @@
 }
 .wl-log-spacer {
   width: 100%;
+  position: relative;
 }
 .wl-log-viewport {
   width: 100%;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+}
+/* Virtual-scroll rows are absolutely positioned inside the viewport; the
+   per-row `top` offset is set dynamically by LogTab. */
+.wl-log-viewport .wl-log-day-header,
+.wl-log-viewport .wl-log-entry {
+  position: absolute;
+  left: 0;
+  right: 0;
 }
 .wl-log-day {
   margin-bottom: 4px;
@@ -4312,14 +4363,18 @@
   font-weight: bold;
 }
 
-.wl-cl-tr-checked {
-  border-left: 3px solid var(--color-green) !important;
-  background: color-mix(in srgb, var(--color-green) 5%, transparent) !important;
+/* Row scope + :hover variant outrank .wl-cl-tr-body:hover. */
+.wl-cl-tr-body.wl-cl-tr-checked,
+.wl-cl-tr-body.wl-cl-tr-checked:hover {
+  border-left: 3px solid var(--color-green);
+  background: color-mix(in srgb, var(--color-green) 5%, transparent);
 }
 
 
 
-.wl-hidden { display: none !important; }
+/* Generic hide utility — doubled class outranks single-class display rules
+   (e.g. .wl-filter-section-content). */
+.wl-hidden.wl-hidden { display: none; }
 
 /* ── Cards view ─────────────────────────────────────────────────────────── */
 
@@ -4619,6 +4674,15 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+  display: none;
+}
+
+/* Poster loaded: swap the letter placeholder for the image. */
+.wl-card.has-poster .wl-card-poster {
+  display: block;
+}
+
+.wl-card.has-poster .wl-card-poster-placeholder {
   display: none;
 }
 
@@ -5866,12 +5930,16 @@
   line-height: 1;
 }
 
+/* Dotted "editable" hint on hover — a transparent border-bottom that gains
+   colour avoids the partially-supported `text-decoration` shorthand while
+   keeping the layout stable. */
 .wl-reading-detail-editable-text {
   cursor: text;
+  border-bottom: 1px dotted transparent;
 }
 
 .wl-reading-detail-editable-text:hover {
-  text-decoration: underline dotted var(--text-faint);
+  border-bottom-color: var(--text-faint);
 }
 
 .wl-reading-detail-title-input {
@@ -6055,6 +6123,24 @@
   padding: 4px 10px;
   font-size: 13px;
   color: var(--text-normal);
+}
+
+/* Fill mode: pastel label background (--wl-field-bg set per column by
+   ReadingDetailModal) with dark text for contrast. */
+.wl-reading-custom-table:not(.is-border-mode) .wl-reading-custom-label {
+  background: var(--wl-field-bg, var(--background-secondary));
+  color: #1e1e1e;
+}
+
+/* Border mode: coloured label outline (--wl-field-border set per column). */
+.wl-reading-custom-table.is-border-mode .wl-reading-custom-label {
+  border: 1.5px solid var(--wl-field-border, var(--background-modifier-border));
+  box-sizing: border-box;
+}
+
+.wl-reading-custom-table.is-border-mode .wl-reading-custom-value {
+  border: 0.5px solid var(--background-modifier-border);
+  box-sizing: border-box;
 }
 
 .wl-reading-custom-display {
@@ -6428,4 +6514,10 @@
   background: var(--color-green);
   border-color: var(--color-green);
   color: var(--text-on-accent);
+}
+
+/* ── Status bar: Upcoming "due" counter ─────────────────── */
+.wl-statusbar-upcoming {
+  cursor: pointer;
+  color: var(--color-orange);
 }

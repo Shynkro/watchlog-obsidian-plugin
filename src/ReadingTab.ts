@@ -458,13 +458,15 @@ export class ReadingTab {
 
 	private openPopoverAt(anchor: HTMLElement, cls: string, build: (el: HTMLElement) => void): void {
 		this.closePopover();
-		const pop = this.container.createDiv({ cls });
+		// wl-popover-anchored pins via top/left (right: auto) instead of the
+		// default right-anchored .wl-dropdown placement.
+		const pop = this.container.createDiv({ cls: `${cls} wl-popover-anchored` });
 		const rect = anchor.getBoundingClientRect();
 		const parentRect = this.container.getBoundingClientRect();
-		pop.style.position = 'absolute';
-		pop.style.top = `${rect.bottom - parentRect.top + 4}px`;
-		pop.style.left = `${rect.left - parentRect.left}px`;
-		pop.style.right = 'auto';
+		pop.setCssProps({
+			top: `${rect.bottom - parentRect.top + 4}px`,
+			left: `${rect.left - parentRect.left}px`,
+		});
 		build(pop);
 		this.openPopover = pop;
 
@@ -746,8 +748,7 @@ export class ReadingTab {
 		}
 
 		// ── Apply — commits the staged draft to live state and re-renders ──
-		const applyWrap = el.createDiv();
-		applyWrap.style.padding = '6px 12px 2px';
+		const applyWrap = el.createDiv({ cls: 'wl-filter-apply-wrap' });
 		const applyBtn = applyWrap.createEl('button', {
 			cls: 'wl-btn wl-btn-sm wl-filter-apply-btn',
 			text: 'Apply',
@@ -1230,7 +1231,7 @@ export class ReadingTab {
 		img.alt = alt;
 		img.loading = 'lazy';
 		img.onload = () => {
-			cover.style.backgroundColor = '';
+			cover.style.removeProperty('background-color');
 			icon?.remove();
 		};
 		img.onerror = () => { img.remove(); };

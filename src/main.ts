@@ -202,7 +202,6 @@ export default class WatchLogPlugin extends Plugin {
 		if (Platform.isMobile) return;
 		this.statusBarEl = this.addStatusBarItem();
 		this.statusBarEl.addClass('wl-statusbar-upcoming');
-		this.statusBarEl.style.cursor = 'pointer';
 		this.statusBarEl.setAttribute('aria-label', 'WatchLog — Upcoming due');
 		this.statusBarEl.addEventListener('click', () => void this.activateView('upcoming'));
 		this.updateStatusBar();
@@ -225,8 +224,7 @@ export default class WatchLogPlugin extends Plugin {
 		}
 		el.empty();
 		el.show();
-		// Orange icon + "N due" — reuse the ribbon's 'tv' icon.
-		el.style.color = 'var(--color-orange)';
+		// Orange icon + "N due" (colour comes from .wl-statusbar-upcoming) — reuse the ribbon's 'tv' icon.
 		const icon = el.createSpan({ cls: 'wl-statusbar-icon' });
 		setIcon(icon, 'tv');
 		el.createSpan({ cls: 'wl-statusbar-text', text: `${count} due` });

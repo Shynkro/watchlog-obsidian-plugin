@@ -29,6 +29,7 @@ export default tseslint.config(
 		plugins: { obsidianmd },
 		rules: {
 			'obsidianmd/ui/sentence-case': 'warn',
+			'obsidianmd/no-static-styles-assignment': 'warn',
 		},
 	},
 	globalIgnores([

@@ -7,6 +7,7 @@ import {
 	formatDateDisplay, parseDateInput,
 } from './types';
 import { googleBooksErrorMessage } from './ApiService';
+import { appendNoteLinkButton } from './NoteLinkButton';
 import { ConfirmModal } from './ConfirmModal';
 import { VaultFilePicker } from './AddReadingModal';
 import { readingStatusColor, coverFallbackColor } from './ReadingTab';
@@ -241,6 +242,16 @@ export class ReadingDetailModal extends Modal {
 		// Editable status badge
 		const statusWrap = meta.createSpan({ cls: 'wl-reading-detail-status-wrap' });
 		this.renderStatusBadge(statusWrap);
+
+		// Open this entry's .md note, inline between the status pill and the stars.
+		// Reading resolves its own note path (Books/Manga live in their own folder);
+		// the shared helper builds the button and handles opening / graceful failure.
+		appendNoteLinkButton(
+			this.plugin.app,
+			meta,
+			this.readingData.noteFilePath(this.mode, item.title),
+			() => this.close(),
+		);
 
 		this.starsWrapEl = meta.createDiv({ cls: 'wl-stars wl-reading-detail-stars' });
 		this.renderStars();

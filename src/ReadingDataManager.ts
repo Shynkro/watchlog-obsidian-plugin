@@ -55,30 +55,34 @@ export class ReadingDataManager {
 		};
 	}
 
-	private get filePath(): string {
-		return normalizePath(`${this.plugin.app.vault.configDir}/plugins/watchlog/reading.json`);
+	/** The single saveData object (owned by DataManager) that now holds reading data. */
+	private get master() {
+		return this.plugin.dataManager.getData();
+	}
+
+	/**
+	 * Reads the reading dataset from the shared `data.reading` key (in memory, not a
+	 * file), normalizes it, and binds `master.reading` to our canonical reference so
+	 * subsequent mutations are reflected in the object DataManager persists.
+	 */
+	private bindFromMaster(): void {
+		const parsed = this.master.reading as Partial<ReadingData> | undefined;
+		if (parsed && typeof parsed === 'object') {
+			this.data = {
+				books: Array.isArray(parsed.books) ? parsed.books : [],
+				manga: Array.isArray(parsed.manga) ? parsed.manga : [],
+				bookColumns: Array.isArray(parsed.bookColumns) ? parsed.bookColumns : [],
+				mangaColumns: Array.isArray(parsed.mangaColumns) ? parsed.mangaColumns : [],
+				settings: { ...DEFAULT_READING_SETTINGS, ...(parsed.settings ?? {}) },
+			};
+		} else {
+			this.data = this.emptyData();
+		}
+		this.master.reading = this.data;
 	}
 
 	async load(): Promise<void> {
-		try {
-			const exists = await this.plugin.app.vault.adapter.exists(this.filePath);
-			if (exists) {
-				const raw = await this.plugin.app.vault.adapter.read(this.filePath);
-				const parsed = JSON.parse(raw) as Partial<ReadingData>;
-				this.data = {
-					books: Array.isArray(parsed.books) ? parsed.books : [],
-					manga: Array.isArray(parsed.manga) ? parsed.manga : [],
-					bookColumns: Array.isArray(parsed.bookColumns) ? parsed.bookColumns : [],
-					mangaColumns: Array.isArray(parsed.mangaColumns) ? parsed.mangaColumns : [],
-					settings: { ...DEFAULT_READING_SETTINGS, ...(parsed.settings ?? {}) },
-				};
-			} else {
-				this.data = this.emptyData();
-			}
-		} catch (e) {
-			console.warn('[WL] ReadingDataManager.load failed:', e);
-			this.data = this.emptyData();
-		}
+		this.bindFromMaster();
 		const changed = this.migrate();
 		if (changed) {
 			await this.saveOnly();
@@ -218,13 +222,24 @@ export class ReadingDataManager {
 
 	private async saveOnly(): Promise<void> {
 		try {
-			await this.plugin.app.vault.adapter.write(
-				this.filePath,
-				JSON.stringify(this.data, null, 2),
-			);
+			// Keep the master reference pointed at our current data (an external sync
+			// reload may have replaced the master object), then persist all of data.json.
+			this.master.reading = this.data;
+			await this.plugin.dataManager.persist();
 		} catch (e) {
 			console.warn('[WL] ReadingDataManager.save failed:', e);
 		}
+	}
+
+	/**
+	 * Re-bind to a freshly synced data.json (driven by DataManager's 'raw' watcher),
+	 * run field migration, and refresh the Reading tab.
+	 */
+	async adoptExternalChange(): Promise<void> {
+		this.bindFromMaster();
+		const changed = this.migrate();
+		if (changed) await this.saveOnly();
+		this.notifyListeners();
 	}
 
 	private async save(): Promise<void> {
@@ -256,10 +271,8 @@ export class ReadingDataManager {
 	 * normal load() path (migration + Upcoming reconcile) and notify listeners.
 	 */
 	async restore(data: ReadingData): Promise<void> {
-		await this.plugin.app.vault.adapter.write(
-			this.filePath,
-			JSON.stringify(data, null, 2),
-		);
+		this.master.reading = data;
+		await this.plugin.dataManager.persist();
 		await this.load();
 		this.notifyListeners();
 	}

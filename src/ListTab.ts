@@ -6,6 +6,8 @@ import { formatTime, formatDateDisplay, parseDateInput, getThemedColor, getDispl
 import { renderCommunityRating, maybeAutoRefreshCommunityRating, refreshCommunityRating } from './CommunityRating';
 import { AddTitleModal } from './AddTitleModal';
 import { AddFromUrlModal } from './AddFromUrlModal';
+import { AddTitleChoiceModal } from './AddTitleChoiceModal';
+import { renderToolbarWithMobileToggle } from './MobileToolbar';
 import { EditTitleModal } from './EditTitleModal';
 import { ConfirmModal } from './ConfirmModal';
 import { TitleDetailModal, GroupDetailModal } from './TitleDetailModal';
@@ -67,6 +69,10 @@ export class ListTab {
 
 	// Watchlist sub-tab
 	currentSubTab: 'list' | 'cards' = 'list';
+
+	// Mobile toolbar toggle — retracted (false) shows search, expanded (true)
+	// shows the action buttons. Desktop ignores this (both are always visible).
+	private toolbarExpanded = false;
 
 	// Virtual-scroll cleanup — removes the rAF-throttled scroll listener on re-render
 	private scrollCleanup: (() => void) | null = null;
@@ -942,9 +948,21 @@ export class ListTab {
 
 		const controls = header.createDiv({ cls: 'wl-header-controls' });
 
-		// Search sits inline as the first item in the toolbar row (matches Reading)
-		this.renderSearch(controls);
+		renderToolbarWithMobileToggle({
+			controls,
+			renderSearch: (parent) => this.renderSearch(parent),
+			renderActions: (parent) => this.renderToolbarActions(parent),
+			expanded: this.toolbarExpanded,
+			onToggleChange: (expanded) => { this.toolbarExpanded = expanded; },
+		});
+	}
 
+	/**
+	 * Renders the toolbar action buttons (saved filter, filters, sorting,
+	 * selection, and the two add buttons). On desktop these sit inline after the
+	 * search input; on mobile they live in the crossfading toolbar slot.
+	 */
+	private renderToolbarActions(controls: HTMLElement): void {
 		// Saved filter preset button (shown only when a preset is stored)
 		const preset = this.dataManager.getSavedFilterPreset();
 		if (preset) {
@@ -1007,24 +1025,28 @@ export class ListTab {
 			this.render();
 		});
 
-		// Add buttons pinned to the far right of the toolbar row
+		// Add button pinned to the far right of the toolbar row — opens a chooser
+		// modal routing to the manual/API or the from-URL add flows.
 		const rightGroup = controls.createDiv({ cls: 'wl-header-controls-right' });
 
-		// + Add from URL
-		const addUrlBtn = rightGroup.createEl('button', { cls: 'wl-btn wl-btn-sm wl-btn-success', text: '+add from URL' });
-		addUrlBtn.addEventListener('click', () => {
-			new AddFromUrlModal(this.plugin.app, this.plugin, this.dataManager, () => {
-				this.render();
-			}).open();
-		});
-
-		// + Add
 		const addBtnWrap = rightGroup.createDiv({ cls: 'wl-add-btn-wrap' });
 		const addBtn = addBtnWrap.createEl('button', { cls: 'wl-add-btn wl-btn-success', text: '+ add' });
 		addBtn.addEventListener('click', (e) => {
 			e.stopPropagation();
-			this.openAddTitleModal();
+			this.openAddTitleChooser();
 		});
+	}
+
+	private openAddTitleChooser(): void {
+		new AddTitleChoiceModal(this.plugin.app, (choice) => {
+			if (choice === 'url') {
+				new AddFromUrlModal(this.plugin.app, this.plugin, this.dataManager, () => {
+					this.render();
+				}).open();
+			} else {
+				this.openAddTitleModal();
+			}
+		}).open();
 	}
 
 	private renderFiltersDropdown(parent: HTMLElement): void {
@@ -2613,7 +2635,7 @@ export class ListTab {
 			const watched = new Set(title.watchedEpisodes);
 			const allWatched = seasonEps.length > 0 && seasonEps.every((ep) => watched.has(ep));
 			// Bulk operation: cheap to do via the existing notify-path which triggers a full re-render.
-			void this.dataManager.markSeasonWatched(title.id, seasonEps, !allWatched).then(() => this.rerenderTable());
+			void this.dataManager.markSeasonWatched(title.id, seasonEps, !allWatched, season?.name).then(() => this.rerenderTable());
 		});
 
 		const perSeason = this.plugin.settings.episodeNumbering === 'per-season';

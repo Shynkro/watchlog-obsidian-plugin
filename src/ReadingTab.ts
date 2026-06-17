@@ -8,6 +8,7 @@ import { AddReadingModal } from './AddReadingModal';
 import { ReadingDetailModal } from './ReadingDetailModal';
 import { ReadingManageColumnsModal } from './ReadingManageColumnsModal';
 import { ConfirmModal } from './ConfirmModal';
+import { renderToolbarWithMobileToggle } from './MobileToolbar';
 
 type SubTab = 'books' | 'manga';
 
@@ -144,6 +145,10 @@ export class ReadingTab {
 	private selectionMode = false;
 	private selectedIds: Set<string> = new Set();
 
+	// Mobile toolbar toggle — retracted (false) shows search, expanded (true)
+	// shows the action buttons. Desktop ignores this (both are always visible).
+	private toolbarExpanded = false;
+
 	// Virtual scroll state
 	private vsScrollContainer: HTMLElement | null = null;
 	private vsScrollSpacer: HTMLElement | null = null;
@@ -242,9 +247,20 @@ export class ReadingTab {
 	private renderToolbar(): void {
 		const toolbar = this.container.createDiv({ cls: 'wl-reading-toolbar' });
 
-		const left = toolbar.createDiv({ cls: 'wl-reading-toolbar-left' });
+		// On mobile the search input and the action buttons crossfade inside a
+		// single slot via a chevron toggle (shared with the Watchlist toolbar);
+		// on desktop they render inline together, unchanged.
+		renderToolbarWithMobileToggle({
+			controls: toolbar,
+			renderSearch: (parent) => this.renderReadingSearch(parent),
+			renderActions: (parent) => this.renderReadingActions(parent),
+			expanded: this.toolbarExpanded,
+			onToggleChange: (expanded) => { this.toolbarExpanded = expanded; },
+		});
+	}
 
-		const searchWrap = left.createDiv({ cls: 'wl-reading-search-wrap' });
+	private renderReadingSearch(parent: HTMLElement): void {
+		const searchWrap = parent.createDiv({ cls: 'wl-reading-search-wrap' });
 		const placeholder = this.activeSubTab === 'books' ? 'Search books...' : 'Search manga...';
 		const searchInput = searchWrap.createEl('input', {
 			cls: 'wl-reading-search-input',
@@ -257,13 +273,15 @@ export class ReadingTab {
 			window.clearTimeout(debounce);
 			debounce = window.setTimeout(() => this.renderContent(), 200);
 		});
+	}
 
+	private renderReadingActions(parent: HTMLElement): void {
 		// Saved filter button — shown only when a filter has been saved. Pressing
 		// it applies the saved filter to the active sub-tab (mirrors Watchlist).
 		const savedFilter = this.getSavedFilter();
 		if (savedFilter) {
 			this.savedFilterActive = this.filtersMatchSaved(savedFilter);
-			const savedBtn = left.createEl('button', {
+			const savedBtn = parent.createEl('button', {
 				cls: `wl-btn wl-btn-sm${this.savedFilterActive ? ' wl-btn-preset-active' : ''}`,
 				text: 'Saved filter',
 			});
@@ -283,7 +301,7 @@ export class ReadingTab {
 			this.savedFilterBtnEl = null;
 		}
 
-		this.filterBtn = left.createEl('button', {
+		this.filterBtn = parent.createEl('button', {
 			cls: 'wl-btn wl-btn-sm wl-reading-filter-btn',
 			text: 'Filter',
 		});
@@ -293,7 +311,7 @@ export class ReadingTab {
 			this.toggleFilterPopover();
 		});
 
-		this.resetBtn = left.createEl('button', {
+		this.resetBtn = parent.createEl('button', {
 			cls: 'wl-btn wl-btn-sm wl-reading-reset-btn',
 			text: 'Reset',
 		});
@@ -307,7 +325,7 @@ export class ReadingTab {
 		});
 		this.refreshFilterButtonBadge();
 
-		this.sortBtn = left.createEl('button', {
+		this.sortBtn = parent.createEl('button', {
 			cls: 'wl-btn wl-btn-sm wl-reading-sort-btn',
 			text: 'Sort',
 		});
@@ -318,13 +336,13 @@ export class ReadingTab {
 
 		// Selection mode action bar
 		if (this.selectionMode && this.selectedIds.size > 0) {
-			this.renderSelectionActionBar(left);
+			this.renderSelectionActionBar(parent);
 		}
 
 		// Select All / Deselect All
 		if (this.selectionMode) {
 			const hasAny = this.selectedIds.size > 0;
-			const selAllBtn = left.createEl('button', {
+			const selAllBtn = parent.createEl('button', {
 				cls: 'wl-btn wl-btn-sm',
 				text: hasAny ? 'None' : 'All',
 			});
@@ -342,7 +360,7 @@ export class ReadingTab {
 		}
 
 		// Selection mode toggle
-		const selBtn = left.createEl('button', {
+		const selBtn = parent.createEl('button', {
 			cls: `wl-btn wl-btn-sm${this.selectionMode ? ' is-active' : ''}`,
 			text: 'Select',
 		});
@@ -352,7 +370,8 @@ export class ReadingTab {
 			this.render();
 		});
 
-		const right = toolbar.createDiv({ cls: 'wl-reading-toolbar-right' });
+		// Gear + Add pinned to the far right of the toolbar row.
+		const right = parent.createDiv({ cls: 'wl-reading-toolbar-right' });
 		const manageBtn = right.createEl('button', {
 			cls: 'wl-btn wl-btn-sm wl-reading-manage-btn',
 			attr: { 'aria-label': 'Manage columns', title: 'Manage columns' },

@@ -1,4 +1,3 @@
-import { normalizePath } from 'obsidian';
 import type WatchLogPlugin from './main';
 
 export type HistorySource = 'Watchlist' | 'Reading';
@@ -35,22 +34,30 @@ export class HistoryManager {
 		this.plugin = plugin;
 	}
 
-	private get filePath(): string {
-		return normalizePath(`${this.plugin.app.vault.configDir}/plugins/watchlog/history.json`);
+	/**
+	 * Loads the activity log from the shared `data.history` key (in memory, not a
+	 * file) and binds `master.history` to our canonical array so appends are
+	 * reflected in the object DataManager persists.
+	 */
+	async load(): Promise<void> {
+		const master = this.plugin.dataManager.getData();
+		const h = master.history;
+		this.entries = Array.isArray(h) ? h : [];
+		if (this.entries.length > this.MAX_ENTRIES) {
+			this.entries = this.entries.slice(-this.MAX_ENTRIES);
+		}
+		master.history = this.entries;
 	}
 
-	async load(): Promise<void> {
-		try {
-			const exists = await this.plugin.app.vault.adapter.exists(this.filePath);
-			if (exists) {
-				const raw = await this.plugin.app.vault.adapter.read(this.filePath);
-				const parsed = JSON.parse(raw) as { entries?: HistoryEntry[] };
-				this.entries = Array.isArray(parsed.entries) ? parsed.entries : [];
-			}
-		} catch (e) {
-			console.warn('[WL] HistoryManager.load failed:', e);
-			this.entries = [];
+	/** Re-bind to a freshly synced data.json (driven by DataManager's 'raw' watcher). */
+	adoptExternalChange(): void {
+		const master = this.plugin.dataManager.getData();
+		const h = master.history;
+		this.entries = Array.isArray(h) ? h : [];
+		if (this.entries.length > this.MAX_ENTRIES) {
+			this.entries = this.entries.slice(-this.MAX_ENTRIES);
 		}
+		master.history = this.entries;
 	}
 
 	async log(
@@ -90,10 +97,11 @@ export class HistoryManager {
 
 	private async save(): Promise<void> {
 		try {
-			await this.plugin.app.vault.adapter.write(
-				this.filePath,
-				JSON.stringify({ entries: this.entries }, null, 2),
-			);
+			// Activity log lives inside data.json now (Sync-replicated). Re-bind the
+			// master reference (an external reload may have replaced the object), then
+			// persist the whole file through DataManager.
+			this.plugin.dataManager.getData().history = this.entries;
+			await this.plugin.dataManager.persist();
 		} catch {
 			// write errors are non-fatal
 		}

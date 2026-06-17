@@ -1,3 +1,5 @@
+import type { HistoryEntry } from './HistoryManager';
+
 export interface Season {
 	name: string;
 	episodes: number;
@@ -336,6 +338,13 @@ export interface WatchLogData {
 	drafts?: DraftPersistState;
 	savedFilterPreset?: SavedFilterPreset | null;
 	posterRetryDone?: boolean;
+	// Reading + activity-log data now live inside data.json (persisted via Obsidian
+	// saveData), so Obsidian Sync replicates them alongside the watchlist. They are
+	// migrated once from the legacy reading.json / history.json files; the boolean
+	// flag below gates that one-time migration.
+	reading?: ReadingData;
+	history?: HistoryEntry[];
+	migratedReadingHistory?: boolean;
 }
 
 // ── Airtime utility functions ─────────────────────────────────────────────────

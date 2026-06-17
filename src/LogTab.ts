@@ -60,6 +60,8 @@ function actionLabel(entry: HistoryEntry): string {
 		case 'watched': {
 			const pm = m.match(/At (page|chapter|volume) (\d+) \/ (\d+)/i);
 			if (pm) return `At ${pm[1]} ${pm[2]} / ${pm[3]}`;
+			const seasonM = m.match(/\)\s+(.+?)\s+was fully watched on/i);
+			if (seasonM) return `${seasonM[1]} watched`;
 			const em = m.match(/episode (\d+)/i);
 			return em ? `Episode ${em[1]} watched` : 'Watched';
 		}

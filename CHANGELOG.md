@@ -2,6 +2,18 @@
 
 All notable changes to WatchLog are documented here.
 
+
+## [2.1.0] - 2026-06-17
+
+### Added
+- **Open note button** — a new file-text icon in the title detail modal opens the title's `.md` note directly in Obsidian. Available in both the Watchlist and Reading (Books + Manga) modals.
+- **Mobile toolbar toggle** — on mobile, a chevron button collapses the action buttons behind a toggle so the search bar stays usable by default. Search ↔ actions swap with a crossfade. Added to both the Watchlist and Reading tabs.
+- **"Season watched" log event** — ticking an entire season now records a single summary "Season X watched" entry in the Log, but only when that action completes the season.
+- **Add chooser modal** — the "+ add" button now opens a small chooser offering "Add from URL" and "Add manually / via API", consolidating the two add paths into one entry point (desktop and mobile).
+
+### Fixed
+- Reading titles not appearing on mobile.
+
 ## [2.0.0] - 2026-06-07
 
 ##### Added

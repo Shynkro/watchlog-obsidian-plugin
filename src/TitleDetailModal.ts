@@ -3,6 +3,7 @@ import type WatchLogPlugin from './main';
 import type { DataManager } from './DataManager';
 import type { WatchLogTitle, WatchLogGroup, Season, TagDefinition } from './types';
 import { formatTime, formatDateDisplay, parseDateInput, getThemedColor, getDisplayPoster } from './types';
+import { appendNoteLinkButton } from './NoteLinkButton';
 import { EditTitleModal } from './EditTitleModal';
 import { ConfirmModal } from './ConfirmModal';
 import { renderCommunityRating, maybeAutoRefreshCommunityRating } from './CommunityRating';
@@ -101,6 +102,16 @@ export class TitleDetailModal extends Modal {
 			linkIcon.target = '_blank';
 			linkIcon.rel = 'noopener noreferrer';
 		}
+
+		// Open the per-title .md note inside Obsidian, inline right after the globe.
+		// Watchlist resolves its note path from the title; the shared helper builds
+		// the button and handles opening / graceful failure.
+		appendNoteLinkButton(
+			this.app,
+			badgeRow,
+			this.dataManager.getNoteFilePath(this.title),
+			() => this.close(),
+		);
 
 		// Editable status badge, inline to the right of the type badge / link icon.
 		// Mirrors the Reading detail modal's clickable badge + dropdown, but draws
@@ -234,7 +245,7 @@ export class TitleDetailModal extends Modal {
 			const watched = new Set(this.title.watchedEpisodes);
 			const allWatched = seasonEps.length > 0 && seasonEps.every((ep) => watched.has(ep));
 			void this.dataManager
-				.markSeasonWatched(this.title.id, seasonEps, !allWatched)
+				.markSeasonWatched(this.title.id, seasonEps, !allWatched, season?.name)
 				.then(() => {
 					this.refreshTitle();
 					this.markChanged();

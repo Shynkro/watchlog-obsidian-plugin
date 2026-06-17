@@ -1,5 +1,7 @@
-import { App, Editor, FuzzySuggestModal, MarkdownView, Notice, Platform, Plugin, setIcon } from 'obsidian';
+import { App, Editor, FuzzySuggestModal, MarkdownView, Notice, Platform, Plugin, normalizePath, setIcon } from 'obsidian';
 import { DEFAULT_SETTINGS, WatchLogPluginSettings, AirtimeSchedule } from './types';
+import type { ReadingData } from './types';
+import type { HistoryEntry } from './HistoryManager';
 import { DataManager } from './DataManager';
 import { ReadingDataManager } from './ReadingDataManager';
 import { ApiService } from './ApiService';
@@ -34,16 +36,22 @@ export default class WatchLogPlugin extends Plugin {
 		await this.loadSettings();
 		this.dataManager = new DataManager(this);
 		await this.dataManager.load();
+
+		// One-time migration: pull legacy reading.json / history.json into data.json so
+		// Obsidian Sync replicates them. Must run after data.json is loaded and before the
+		// reading/history managers bind to it. Idempotent — gated by a flag in data.json.
+		await this.migrateReadingHistory();
+
 		this.dataManager.startWatchingExternalChanges();
 
-		this.readingDataManager = new ReadingDataManager(this);
-		await this.readingDataManager.load();
-
 		this.apiService = new ApiService(this.settings.omdbApiKey, this.settings.tmdbApiKey, this.settings.googleBooksApiKey);
+		this.readingDataManager = new ReadingDataManager(this);
 		this.historyManager = new HistoryManager(this);
-		await this.historyManager.load();
 		this.dataManager.setHistoryManager(this.historyManager);
 		this.readingDataManager.setHistoryManager(this.historyManager);
+		// History binds first so any reading-load logging has a live target.
+		await this.historyManager.load();
+		await this.readingDataManager.load();
 
 		this.posterService = new PosterService(
 			this.dataManager,
@@ -310,6 +318,92 @@ export default class WatchLogPlugin extends Plugin {
 
 	async saveSettings(): Promise<void> {
 		await this.dataManager.saveSettings(this.settings);
+	}
+
+	/**
+	 * One-time migration of legacy `reading.json` / `history.json` into `data.json`.
+	 *
+	 * Obsidian Sync replicates data.json (the saveData channel) but NOT the raw
+	 * adapter-written reading.json / history.json. This copies their contents into
+	 * the single saveData object so Sync carries reading + activity-log data too.
+	 *
+	 * Gated by `data.migratedReadingHistory`. The flag and the migrated data are
+	 * written together in ONE atomic saveData(), so an interrupted load simply
+	 * re-runs the (idempotent) migration next time. The flag is only set when both
+	 * legacy reads succeeded (a valid empty/absent file counts as success); a
+	 * parse failure leaves the flag unset to preserve a recovery chance. Legacy
+	 * files are left on disk untouched as a backup.
+	 */
+	private async migrateReadingHistory(): Promise<void> {
+		const master = this.dataManager.getData();
+		if (master.migratedReadingHistory === true) {
+			return;
+		}
+
+		const adapter = this.app.vault.adapter;
+		const dir = `${this.app.vault.configDir}/plugins/watchlog`;
+		const readingPath = normalizePath(`${dir}/reading.json`);
+		const historyPath = normalizePath(`${dir}/history.json`);
+
+		// ── Read legacy reading.json ──────────────────────────────────────────────
+		let readingOk = false;
+		let readingData: ReadingData | null = null;
+		try {
+			if (await adapter.exists(readingPath)) {
+				const raw = await adapter.read(readingPath);
+				readingData = JSON.parse(raw) as ReadingData;
+				readingOk = true;
+			} else {
+				readingOk = true; // absent = nothing to migrate (still a success)
+			}
+		} catch (e) {
+			readingOk = false;
+			console.warn('[WL] reading.json read/parse failed — migration will retry next load:', e);
+		}
+
+		// ── Read legacy history.json ──────────────────────────────────────────────
+		let historyOk = false;
+		let historyEntries: HistoryEntry[] | null = null;
+		try {
+			if (await adapter.exists(historyPath)) {
+				const raw = await adapter.read(historyPath);
+				const parsed = JSON.parse(raw) as { entries?: HistoryEntry[] };
+				historyEntries = Array.isArray(parsed.entries) ? parsed.entries : [];
+				historyOk = true;
+			} else {
+				historyOk = true;
+			}
+		} catch (e) {
+			historyOk = false;
+			console.warn('[WL] history.json read/parse failed — migration will retry next load:', e);
+		}
+
+		// ── Copy into the saveData object (with the don't-overwrite-with-empty belt) ──
+		if (readingOk && readingData) {
+			const legacyHasReading =
+				(readingData.books?.length ?? 0) > 0 || (readingData.manga?.length ?? 0) > 0 ||
+				(readingData.bookColumns?.length ?? 0) > 0 || (readingData.mangaColumns?.length ?? 0) > 0;
+			const masterHasReading = !!master.reading &&
+				(((master.reading.books?.length ?? 0) > 0) || ((master.reading.manga?.length ?? 0) > 0));
+			if (legacyHasReading || !masterHasReading) {
+				master.reading = readingData;
+			}
+		}
+
+		if (historyOk && historyEntries) {
+			const masterHasHistory = Array.isArray(master.history) && master.history.length > 0;
+			if (historyEntries.length > 0 || !masterHasHistory) {
+				master.history = historyEntries;
+			}
+		}
+
+		// Only mark migrated when both reads succeeded; otherwise retry next load.
+		if (readingOk && historyOk) {
+			master.migratedReadingHistory = true;
+		}
+
+		// Single atomic write: migrated data AND flag together.
+		await this.dataManager.persist();
 	}
 
 	private openWidgetPalette(editor: Editor): void {

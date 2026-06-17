@@ -207,10 +207,16 @@ export class WatchLogSettingsTab extends PluginSettingTab {
 		const filename = `watchlog-backup-${dateStr}.json`;
 
 		// Version-2 snapshot: a self-describing wrapper around all three data sources.
+		// Reading + history now live inside the watch object (data.json); strip them
+		// from `watch` so the snapshot keeps its three distinct fields without dupes.
+		const watchOnly = Object.assign({}, this.plugin.dataManager.getData() ?? {}) as unknown as Record<string, unknown>;
+		delete watchOnly['reading'];
+		delete watchOnly['history'];
+		delete watchOnly['migratedReadingHistory'];
 		const snapshot = {
 			version: 2,
 			exportedAt: today.toISOString(),
-			watch: this.plugin.dataManager.getData() ?? {},
+			watch: watchOnly,
 			reading: this.plugin.readingDataManager.getData(),
 			history: this.plugin.historyManager.exportEntries(),
 		};
@@ -320,7 +326,11 @@ export class WatchLogSettingsTab extends PluginSettingTab {
 					}
 					new ConfirmModal(this.app, 'This will replace ALL current watchlog data — watchlist, reading (books & manga) and activity log. Continue?', () => {
 						void (async () => {
-							await this.plugin.saveData(watch);
+							// Reading + history now persist inside data.json. Mark the data as
+							// already-migrated so the one-time legacy import never re-runs and
+							// clobbers the just-restored data on the next load.
+							const restored = Object.assign({}, watch as Record<string, unknown>, { migratedReadingHistory: true });
+							await this.plugin.saveData(restored);
 							await this.plugin.loadSettings();
 							await this.plugin.dataManager.load();
 							await this.plugin.readingDataManager.restore(reading as ReadingData);
@@ -338,12 +348,23 @@ export class WatchLogSettingsTab extends PluginSettingTab {
 					return;
 				}
 				new ConfirmModal(this.app, 'This is a legacy (watchlist-only) backup. It will replace your current watchlist. Reading and activity-log data are left untouched. Continue?', () => {
-					void this.plugin.saveData(parsed).then(async () => {
+					void (async () => {
+						// data.json now also holds reading + history. A legacy backup carries
+						// neither, so preserve the CURRENT in-memory reading/history (and the
+						// migrated flag) when overwriting the watch data — truly "untouched".
+						const merged = Object.assign({}, parsed as Record<string, unknown>, {
+							reading: this.plugin.readingDataManager.getData(),
+							history: this.plugin.historyManager.exportEntries(),
+							migratedReadingHistory: true,
+						});
+						await this.plugin.saveData(merged);
 						await this.plugin.loadSettings();
 						await this.plugin.dataManager.load();
+						await this.plugin.historyManager.load();
+						await this.plugin.readingDataManager.load();
 						activeDocument.dispatchEvent(new CustomEvent('watchlog-data-changed'));
 						new Notice('Legacy backup restored — watchlist only; reading and activity log left untouched.');
-					});
+					})();
 				}).open();
 			};
 			reader.readAsText(file);

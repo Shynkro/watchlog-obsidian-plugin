@@ -1956,6 +1956,54 @@
   font-size: 11px;
 }
 
+/* ── Mobile toolbar crossfade slot ──────────────────────────
+   On mobile the search input and the action buttons overlap inside a single
+   fixed-height slot and crossfade between each other (toggled by the chevron
+   button). Both panes are absolutely positioned so swapping them causes no
+   reflow — only opacity is animated (mobile WebView layout transitions are
+   unreliable). */
+.wl-toolbar-slot {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+}
+
+.wl-toolbar-slot-pane {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Search input fills the full slot width on mobile (overriding the desktop
+   max-width cap). */
+.wl-toolbar-slot-pane .wl-reading-search-wrap {
+  max-width: none;
+}
+
+/* Animate opacity only — never width/flex/layout. */
+.wl-toolbar-fade {
+  transition: opacity 180ms ease;
+}
+
+.wl-toolbar-pane-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Square chevron toggle button at the right end of the toolbar row. */
+.wl-toolbar-toggle-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+}
+
 /* Active (selected) state for the selection mode toggle button */
 .wl-btn.is-active {
   background: var(--interactive-accent);
@@ -2089,11 +2137,24 @@
 /* ── Link icon in accordion ─────────────────────────────── */
 .wl-acc-link-icon {
   font-size: 13px;
+  --icon-size: 13px;
   text-decoration: none;
   opacity: 0.6;
   transition: opacity 0.15s;
   cursor: pointer;
   flex-shrink: 0;
+  /* Center the glyph/SVG in a fixed box so the emoji globe and the file-text
+     icon align identically, instead of the SVG sitting on the text baseline. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Block-center the Lucide SVG at the same size as the globe glyph (13px). */
+.wl-acc-link-icon svg {
+  display: block;
+  width: 13px;
+  height: 13px;
 }
 
 .wl-acc-link-icon:hover {
@@ -5053,22 +5114,17 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  justify-content: space-between;
 }
 
-.wl-reading-toolbar-left {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: 1;
-  min-width: 0;
-}
-
+/* Gear + Add group — pushed to the far right of the toolbar row (was driven by
+   the toolbar's space-between before search/actions were flattened into one
+   flex row). */
 .wl-reading-toolbar-right {
   display: flex;
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
+  margin-left: auto;
 }
 
 .wl-reading-search-wrap {

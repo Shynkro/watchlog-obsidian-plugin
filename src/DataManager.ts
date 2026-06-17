@@ -220,6 +220,17 @@ export class DataManager {
 		this.lastSelfSaveTime = Date.now();
 	}
 
+	/**
+	 * Persist the full in-memory data object to data.json. Reading and activity-log
+	 * data now live as keys (`reading` / `history`) inside this same object, so
+	 * ReadingDataManager and HistoryManager route their saves through here. Going
+	 * through saveOnly() also stamps lastSelfSaveTime, so the 'raw' watcher ignores
+	 * the echo of these writes (no spurious reload + re-render).
+	 */
+	async persist(): Promise<void> {
+		await this.saveOnly();
+	}
+
 	async save(): Promise<void> {
 		// An immediate save supersedes any pending debounced one — the in-memory
 		// state already contains those changes.
@@ -423,8 +434,8 @@ export class DataManager {
 	}
 
 	// ── Reading → Upcoming bridge ──────────────────────────────────────────────────
-	// Reading items (Book/Manga) live in reading.json, but their Upcoming entries
-	// share the same airtime list as watch titles — mirroring autoAddToUpcoming.
+	// Reading items (Book/Manga) live under the data.reading key, but their Upcoming
+	// entries share the same airtime list as watch titles — mirroring autoAddToUpcoming.
 
 	/**
 	 * Auto-adds a reading item with a future release date to Upcoming, mirroring
@@ -787,6 +798,11 @@ export class DataManager {
 				void (async () => {
 					await this.load();
 					this.notifyListeners();
+					// Reading + activity-log data live inside data.json now, so a synced
+					// data.json carries them too. Re-bind those managers' in-memory views
+					// to the freshly-loaded object and refresh their UIs (Reading / Log tabs).
+					await this.plugin.readingDataManager?.adoptExternalChange();
+					this.plugin.historyManager?.adoptExternalChange();
 				})();
 			}
 		});
@@ -974,9 +990,19 @@ export class DataManager {
 		await this.updateTitle(title);
 	}
 
-	async markSeasonWatched(id: string, episodeNumbers: number[], watched: boolean): Promise<void> {
+	async markSeasonWatched(
+		id: string,
+		episodeNumbers: number[],
+		watched: boolean,
+		seasonLabel?: string,
+	): Promise<void> {
 		const title = this.getTitle(id);
 		if (!title) return;
+
+		// Capture season-completion state BEFORE the tick, so we can detect a
+		// not-complete → complete transition and log a single summary event.
+		const before = new Set(title.watchedEpisodes);
+		const wasComplete = episodeNumbers.length > 0 && episodeNumbers.every((ep) => before.has(ep));
 
 		if (watched) {
 			const set = new Set(title.watchedEpisodes);
@@ -985,6 +1011,21 @@ export class DataManager {
 		} else {
 			const remove = new Set(episodeNumbers);
 			title.watchedEpisodes = title.watchedEpisodes.filter((e) => !remove.has(e));
+		}
+
+		// "Tick entire season" summary event: emit ONE history entry (no per-episode
+		// events) only when this action makes the season newly complete. Skip if the
+		// season was already complete, if we're clearing, or if there's no season label.
+		if (watched && seasonLabel) {
+			const after = new Set(title.watchedEpisodes);
+			const nowComplete = episodeNumbers.length > 0 && episodeNumbers.every((ep) => after.has(ep));
+			if (!wasComplete && nowComplete) {
+				const now = new Date().toISOString();
+				void this.historyManager?.log(
+					`${title.title} (${title.type}) ${seasonLabel} was fully watched on ${formatHistoryDate(now)}`,
+					{ source: 'Watchlist', action: 'watched', titleName: title.title },
+				);
+			}
 		}
 
 		const effectiveTotal = this.getEffectiveTotal(title);
@@ -1029,12 +1070,18 @@ export class DataManager {
 
 	private lastMarkdownPathById: Map<string, string> = new Map();
 
+	/** Resolves the per-title `.md` note path — the same scheme used to create it. */
+	getNoteFilePath(title: WatchLogTitle): string {
+		const root = this.plugin.settings.rootFolder;
+		const safeTitle = title.title.replace(/[*"\\/<>:|?]/g, '-');
+		return normalizePath(`${root}/${title.type}/${safeTitle}.md`);
+	}
+
 	async updateMarkdownFile(title: WatchLogTitle): Promise<void> {
 		const root = this.plugin.settings.rootFolder;
 		const folderPath = normalizePath(`${root}/${title.type}`);
 		await this.ensureFolder(folderPath);
-		const safeTitle = title.title.replace(/[*"\\/<>:|?]/g, '-');
-		const filePath = normalizePath(`${folderPath}/${safeTitle}.md`);
+		const filePath = this.getNoteFilePath(title);
 		const progress = this.getProgress(title);
 		const content = this.buildMarkdownContent(title, progress);
 
@@ -1064,8 +1111,7 @@ export class DataManager {
 	async createMarkdownFileIfMissing(title: WatchLogTitle): Promise<boolean> {
 		const root = this.plugin.settings.rootFolder;
 		const folderPath = normalizePath(`${root}/${title.type}`);
-		const safeTitle = title.title.replace(/[*"\\/<>:|?]/g, '-');
-		const filePath = normalizePath(`${folderPath}/${safeTitle}.md`);
+		const filePath = this.getNoteFilePath(title);
 		if (this.app.vault.getAbstractFileByPath(filePath) instanceof TFile) return false;
 		await this.ensureFolder(normalizePath(root));
 		await this.ensureFolder(folderPath);
@@ -1095,9 +1141,7 @@ ${title.notes}
 	}
 
 	private async deleteMarkdownFile(title: WatchLogTitle): Promise<void> {
-		const root = this.plugin.settings.rootFolder;
-		const safeTitle = title.title.replace(/[*"\\/<>:|?]/g, '-');
-		const filePath = normalizePath(`${root}/${title.type}/${safeTitle}.md`);
+		const filePath = this.getNoteFilePath(title);
 		const file = this.app.vault.getAbstractFileByPath(filePath);
 		if (file instanceof TFile) {
 			await this.app.fileManager.trashFile(file);

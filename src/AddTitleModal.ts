@@ -74,6 +74,7 @@ export class AddTitleModal extends Modal {
 		plugin: WatchLogPlugin,
 		dataManager: DataManager,
 		onAdded: (entry: WatchLogTitle) => void,
+		preferredType?: string,
 		prefill?: {
 			title?: string;
 			searchQuery?: string;
@@ -92,8 +93,10 @@ export class AddTitleModal extends Modal {
 		this.plugin = plugin;
 		this.dataManager = dataManager;
 		this.onAdded = onAdded;
-		// preselect the resolved default type; a prefill type (e.g. from URL detection) overrides it below
 		this.selectedType = this.plugin.resolveDefaultAddType() || this.selectedType;
+		if (preferredType) {
+			this.selectedType = preferredType;
+		}
 		if (prefill) {
 			this.selectedType = prefill.type;
 			if (prefill.title) {

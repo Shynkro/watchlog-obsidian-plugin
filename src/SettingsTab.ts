@@ -2413,6 +2413,23 @@ export class WatchLogSettingsTab extends PluginSettingTab {
 			);
 
 		new Setting(el)
+			.setName('Type sub-tabs')
+			.setDesc('Show an All tab plus one sub-tab per type. When on, the Type filter in Filters is hidden.')
+			.addToggle((t) =>
+				t
+					.setValue(this.plugin.settings.watchlistTypeSubTabs ?? false)
+					.onChange(async (v) => {
+						this.plugin.settings.watchlistTypeSubTabs = v;
+						if (v) {
+							const lf = this.plugin.settings.listFilters;
+							if (lf) lf.typeExclude = [];
+						}
+						await this.plugin.saveSettings();
+						this.plugin.dataManager.notifyChange();
+					}),
+			);
+
+		new Setting(el)
 			.setName('Open watchlist after adding')
 			.setDesc('Jump to the watchlist tab and open the new title after adding it from the command palette.')
 			.addToggle((t) =>

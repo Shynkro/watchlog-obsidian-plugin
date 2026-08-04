@@ -211,15 +211,16 @@ export class ReadingTab {
 	}
 
 	private renderSubTabs(): void {
-		const bar = this.container.createDiv({ cls: 'wl-reading-subtabs' });
+		const bar = this.container.createDiv({ cls: 'wl-subtabs' });
+		const track = bar.createDiv({ cls: 'wl-subtabs-track' });
 
-		const booksBtn = bar.createEl('button', {
-			cls: `wl-reading-subtab${this.activeSubTab === 'books' ? ' is-active' : ''}`,
+		const booksBtn = track.createEl('button', {
+			cls: `wl-subtab${this.activeSubTab === 'books' ? ' is-active' : ''}`,
 			text: 'Books',
 		});
 
-		const mangaBtn = bar.createEl('button', {
-			cls: `wl-reading-subtab${this.activeSubTab === 'manga' ? ' is-active' : ''}`,
+		const mangaBtn = track.createEl('button', {
+			cls: `wl-subtab${this.activeSubTab === 'manga' ? ' is-active' : ''}`,
 			text: 'Manga',
 		});
 

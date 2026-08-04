@@ -420,6 +420,7 @@ export interface WatchLogPluginSettings {
 	rootFolder: string;
 	autoCreateFolders: boolean;
 	coloredTypeBadges: boolean;
+	watchlistTypeSubTabs: boolean;
 	/** Open the panel on the Watchlist tab after the Add title command adds something. */
 	openWatchlistAfterAdd: boolean;
 	seasonPalette: string[];
@@ -1042,6 +1043,7 @@ export const DEFAULT_SETTINGS: WatchLogPluginSettings = {
 	rootFolder: 'WatchLog',
 	autoCreateFolders: true,
 	coloredTypeBadges: true,
+	watchlistTypeSubTabs: false,
 	openWatchlistAfterAdd: true,
 	dashboardCardStyle: 'rectangles',
 	cardSize: 0,

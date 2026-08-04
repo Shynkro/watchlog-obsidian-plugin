@@ -27,7 +27,7 @@ export function openAddForTitle(opts: AddRouteOptions): void {
 
 	new DraftChoiceModal(plugin.app, title, (choice) => {
 		if (choice === 'watchlist') {
-			new AddTitleModal(plugin.app, plugin, dataManager, done, {
+			new AddTitleModal(plugin.app, plugin, dataManager, done, undefined, {
 				searchQuery: title,
 				title,
 				type: 'Anime',

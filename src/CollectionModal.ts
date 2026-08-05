@@ -429,6 +429,7 @@ export class CollectionModal extends Modal {
 				posterUrl: '',
 				trailerUrl: detail.trailerUrl ?? '',
 				manualTrailerUrl: '',
+				customFields: {},
 				// both ids known — skips the ladder forever
 				tmdbId: part.id,
 				collectionId: this.collection.id,

@@ -8,6 +8,11 @@ import { LibraryIndex, gameResultIdKeys } from './LibraryIndex';
 import { renderModePill } from './ModePill';
 import { renderTagChips } from './StatusDropdown';
 import { createDatePicker } from './DatePicker';
+import {
+	normalizeCustomPropertyList,
+	renderCustomPropertyFormFields,
+	type CustomPropertyFormState,
+} from './CustomProperties';
 
 /** Lowercased word tokens of a platform name, split into alpha and numeric. */
 function platformTokens(name: string): { alpha: Set<string>; num: Set<string> } {
@@ -74,6 +79,7 @@ export class AddGameModal extends Modal {
 	private newGroupName = '';
 	private skipDuplicateCheck = false;
 	private duplicateWarningEl: HTMLElement | null = null;
+	private customPropState: CustomPropertyFormState = { values: {} };
 	// built on first search, reused for the modal's life
 	private libIndex: LibraryIndex | null = null;
 
@@ -473,6 +479,12 @@ export class AddGameModal extends Modal {
 		if (this.selectedGroupId) newGroupInput.disabled = true;
 		if (this.newGroupName.trim()) groupSelect.disabled = true;
 
+		renderCustomPropertyFormFields(
+			this.formEl,
+			normalizeCustomPropertyList(this.gameData.getCustomProperties()),
+			this.customPropState,
+		);
+
 		const btnRow = this.formEl.createDiv({ cls: 'wl-modal-btn-row' });
 		const addBtn = btnRow.createEl('button', { cls: 'wl-btn wl-btn-primary', text: 'Add to games' });
 		addBtn.addEventListener('click', () => void this.addGame());
@@ -552,6 +564,7 @@ export class AddGameModal extends Modal {
 			dateFinished: null,
 			dateAdded: now,
 			dateModified: now,
+			customFields: { ...this.customPropState.values },
 		};
 
 		await this.gameData.addGame(game);

@@ -5,6 +5,8 @@ import type { HistoryManager } from './HistoryManager';
 import { formatHistoryDate } from './HistoryManager';
 import { getDisplayPoster, getDisplayTrailer, getTitleCredits, pruneManualCredits, normalizeManualCredits, isReleaseDateFuture, todayIso } from './types';
 import type { CreditsField } from './types';
+import { appendCustomPropertyLines, normalizeCustomPropertyList } from './CustomProperties';
+import type { CustomProperty } from './types';
 
 function isValidWatchLogData(data: unknown): data is WatchLogData {
 	return (
@@ -115,6 +117,10 @@ export class DataManager {
 			// which only ever wrote movie ids
 			if (title.tmdbId && title.tmdbMediaType === undefined) {
 				title.tmdbMediaType = 'movie';
+				changed = true;
+			}
+			if (!title.customFields || typeof title.customFields !== 'object') {
+				title.customFields = {};
 				changed = true;
 			}
 		}
@@ -333,6 +339,31 @@ export class DataManager {
 	async saveSettings(settings: WatchLogPluginSettings): Promise<void> {
 		this.data.settings = settings;
 		await this.saveOnly();
+	}
+
+	/** Replace Watchlist property schema; strips removed ids from every title's customFields. */
+	async setWatchlistCustomProperties(next: CustomProperty[]): Promise<void> {
+		const prev = this.plugin.settings.watchlistCustomProperties ?? [];
+		const nextIds = new Set(next.map((p) => p.id));
+		const removed = prev.map((p) => p.id).filter((id) => !nextIds.has(id));
+		this.plugin.settings.watchlistCustomProperties = next;
+		if (removed.length > 0) {
+			for (const t of this.data.titles) {
+				if (!t.customFields) continue;
+				for (const id of removed) delete t.customFields[id];
+			}
+		}
+		await this.plugin.saveSettings();
+		await this.persist();
+	}
+
+	async setTitleCustomField(titleId: string, propId: string, value: string | number | null): Promise<void> {
+		const title = this.getTitle(titleId);
+		if (!title) return;
+		if (!title.customFields) title.customFields = {};
+		if (value === null || value === '') delete title.customFields[propId];
+		else title.customFields[propId] = value;
+		await this.updateTitle(title);
 	}
 
 	private async saveOnly(): Promise<void> {
@@ -1473,6 +1504,12 @@ export class DataManager {
 		if (title.externalLink) lines.push(`externalLink: ${esc(title.externalLink)}`);
 		if (title.pinned) lines.push(`pinned: true`);
 		if (title.favorite) lines.push(`favorite: true`);
+		appendCustomPropertyLines(
+			lines,
+			normalizeCustomPropertyList(this.plugin.settings.watchlistCustomProperties),
+			title.customFields,
+			esc,
+		);
 		lines.push('---');
 		return lines.join('\n');
 	}

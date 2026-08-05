@@ -64,6 +64,8 @@ export interface WatchLogTitle {
 	studio?: string[];
 	/** user-added, appended after the fetched ones; a refresh never overwrites */
 	manualStudio?: string[];
+	/** Values keyed by CustomProperty.id (schema in settings.watchlistCustomProperties). */
+	customFields: Record<string, string | number>;
 }
 
 // TMDB collections
@@ -422,6 +424,8 @@ export interface WatchLogPluginSettings {
 	coloredTypeBadges: boolean;
 	watchlistTypeSubTabs: boolean;
 	openNoteOnClick: boolean;
+	/** User-defined properties for Watchlist titles (values live on WatchLogTitle.customFields). */
+	watchlistCustomProperties: CustomProperty[];
 	/** Open the panel on the Watchlist tab after the Add title command adds something. */
 	openWatchlistAfterAdd: boolean;
 	seasonPalette: string[];
@@ -625,13 +629,19 @@ export function formatCount(n: number): string {
 	return String(Math.max(0, Math.round(n || 0))).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
-export interface ReadingCustomColumn {
+export type CustomPropertyType = 'text' | 'number' | 'date' | 'dropdown';
+
+/** User-defined property schema shared by Watchlist, Reading, and Games. */
+export interface CustomProperty {
 	id: string;
 	name: string;
-	type: 'text' | 'number' | 'select';
+	type: CustomPropertyType;
 	options: string[];
 	color?: string; // 600-stop hex; defaults to FIELD_COLORS gray
 }
+
+/** Alias kept for Reading column APIs — same shape as CustomProperty. */
+export type ReadingCustomColumn = CustomProperty;
 
 export interface ReadingSavedFilterPreset {
 	name: string;
@@ -751,6 +761,8 @@ export interface Game {
 	dateFinished: string | null;
 	dateAdded: string;
 	dateModified: string;
+	/** Values keyed by CustomProperty.id (schema in GamesSettings.customProperties). */
+	customFields: Record<string, string | number>;
 }
 
 export interface GamesSettings {
@@ -769,6 +781,8 @@ export interface GamesSettings {
 	 * reference it (same as watchlist types).
 	 */
 	platforms: TagDefinition[];
+	/** User-defined properties for games (values live on Game.customFields). */
+	customProperties: CustomProperty[];
 	/** Games Rows shelf order + visibility (own shelf registry). */
 	rowsLayout?: RowsShelfLayoutEntry[];
 	/** The Games tab's single saved filter preset (the Watchlist pattern). */
@@ -874,6 +888,7 @@ export function defaultGamesSettings(): GamesSettings {
 			{ name: 'Xbox Series X|S', color: '#22C55E' },
 			{ name: 'Nintendo Switch 2', color: '#E24B4A' },
 		],
+		customProperties: [],
 	};
 }
 
@@ -1046,6 +1061,7 @@ export const DEFAULT_SETTINGS: WatchLogPluginSettings = {
 	coloredTypeBadges: true,
 	watchlistTypeSubTabs: false,
 	openNoteOnClick: false,
+	watchlistCustomProperties: [],
 	openWatchlistAfterAdd: true,
 	dashboardCardStyle: 'rectangles',
 	cardSize: 0,

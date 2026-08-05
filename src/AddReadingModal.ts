@@ -15,6 +15,11 @@ import {
 	ReadingStatus,
 	SELECTABLE_READING_STATUSES,
 } from './types';
+import {
+	normalizeCustomPropertyList,
+	renderCustomPropertyFormFields,
+	type CustomPropertyFormState,
+} from './CustomProperties';
 
 export type ReadingMode = 'book' | 'manga';
 
@@ -104,6 +109,7 @@ export class AddReadingModal extends Modal {
 	private selectGen = 0;
 	private prefillSearch: string;
 	private searchDebounce: number | null = null;
+	private customPropState: CustomPropertyFormState = { values: {} };
 	// built on first lookup, reused for the modal's life
 	private libIndex: LibraryIndex | null = null;
 
@@ -411,6 +417,17 @@ export class AddReadingModal extends Modal {
 		this.renderStatusRatingRow(form);
 
 		this.renderProgressOptionalGrid(form);
+
+		if (!this.existingId) {
+			const cols = this.mode === 'book'
+				? this.readingData.getBookColumns()
+				: this.readingData.getMangaColumns();
+			renderCustomPropertyFormFields(
+				form,
+				normalizeCustomPropertyList(cols),
+				this.customPropState,
+			);
+		}
 	}
 
 	private renderProgressOptionalGrid(parent: HTMLElement): void {
@@ -655,7 +672,7 @@ export class AddReadingModal extends Modal {
 				releaseDate: this.state.releaseDate,
 				dateAdded: now,
 				dateModified: now,
-				customFields: {},
+				customFields: { ...this.customPropState.values },
 			};
 			await this.readingData.addBook(book);
 		}
@@ -706,7 +723,7 @@ export class AddReadingModal extends Modal {
 				releaseDate: this.state.releaseDate,
 				dateAdded: now,
 				dateModified: now,
-				customFields: {},
+				customFields: { ...this.customPropState.values },
 			};
 			await this.readingData.addManga(manga);
 		}

@@ -11,6 +11,10 @@ import { renderModePill } from './ModePill';
 import { appendNoteLinkButton } from './NoteLinkButton';
 import { createDatePicker } from './DatePicker';
 import { pinModalFooter } from './StickyModal';
+import {
+	normalizeCustomPropertyList,
+	renderCustomPropertiesDetailSection,
+} from './CustomProperties';
 
 /**
  * Game detail/edit modal: cover + title/developer header, Type / Priority / Status pill dropdowns
@@ -44,7 +48,11 @@ export class GameDetailModal extends Modal {
 		super(app);
 		this.plugin = plugin;
 		this.gameData = gameData;
-		this.draft = { ...game, platforms: [...game.platforms] };
+		this.draft = {
+			...game,
+			platforms: [...game.platforms],
+			customFields: { ...(game.customFields ?? {}) },
+		};
 		// the batch "Group…" action only ever adds, so a game can already sit in more than one group; the
 		// dropdown seeds from the first and Save re-homes it into exactly one (or none)
 		this.originalGroupId = this.gameData.getGroups().find((g) => g.gameIds.includes(game.id))?.id ?? '';
@@ -149,6 +157,22 @@ export class GameDetailModal extends Modal {
 		});
 		ta.value = this.notesValue;
 		ta.addEventListener('input', () => { this.notesValue = ta.value; });
+
+		if (!this.draft.customFields) this.draft.customFields = {};
+		const gameProps = normalizeCustomPropertyList(this.gameData.getCustomProperties());
+		if (gameProps.length > 0) {
+			renderCustomPropertiesDetailSection({
+				parent: c,
+				properties: gameProps,
+				getFields: () => this.draft.customFields ?? {},
+				emptyHint: 'No properties yet. Add some in Settings → Customize → Games.',
+				onSave: (propId, value) => {
+					if (!this.draft.customFields) this.draft.customFields = {};
+					if (value === null || value === '') delete this.draft.customFields[propId];
+					else this.draft.customFields[propId] = value;
+				},
+			});
+		}
 
 		// Footer
 		const footer = c.createDiv({ cls: 'wl-game-modal-footer' });

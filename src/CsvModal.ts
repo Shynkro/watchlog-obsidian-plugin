@@ -877,6 +877,7 @@ export class CsvModal extends Modal {
 						seasons: [],
 						watchedEpisodes: [],
 						favorite: false,
+						customFields: {},
 					};
 					if (r.entry.manualStudio?.length) entry.manualStudio = r.entry.manualStudio;
 					if (entry.status === 'Completed' && entry.totalEpisodes > 0) {

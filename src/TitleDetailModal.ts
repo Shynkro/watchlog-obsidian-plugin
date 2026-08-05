@@ -16,6 +16,10 @@ import { renderStarRating } from './StarRating';
 import { CollectionModal, resolveCollection, countMissing } from './CollectionModal';
 import { pinModalFooter } from './StickyModal';
 import type { TmdbCollectionDetail } from './types';
+import {
+	normalizeCustomPropertyList,
+	renderCustomPropertiesDetailSection,
+} from './CustomProperties';
 
 // titles whose credits backfill is in flight — de-dupes rapid modal re-opens
 const creditsBackfillInFlight = new Set<string>();
@@ -101,6 +105,7 @@ export class TitleDetailModal extends Modal {
 		// mobile puts the rating row inside the header, beside the poster
 		if (!this.mobile) this.renderRatingSection(this.contentEl);
 		this.renderNotesSection(this.contentEl);
+		this.renderPropertiesSection(this.contentEl);
 		this.renderDateSection(this.contentEl);
 		this.renderFooter(this.contentEl);
 		pinModalFooter(this.footerEl);
@@ -832,6 +837,26 @@ export class TitleDetailModal extends Modal {
 				this.refreshTitle();
 				this.markChanged();
 			})();
+		});
+	}
+
+	private renderPropertiesSection(parent: HTMLElement): void {
+		if (!this.title.customFields) this.title.customFields = {};
+		const props = normalizeCustomPropertyList(this.plugin.settings.watchlistCustomProperties);
+		if (props.length === 0) return;
+		renderCustomPropertiesDetailSection({
+			parent,
+			properties: props,
+			getFields: () => {
+				const t = this.dataManager.getTitle(this.title.id) ?? this.title;
+				return t.customFields ?? {};
+			},
+			emptyHint: 'No properties yet. Add some in Settings → Customize → Watchlist.',
+			onSave: async (propId, value) => {
+				await this.dataManager.setTitleCustomField(this.title.id, propId, value);
+				this.refreshTitle();
+				this.markChanged();
+			},
 		});
 	}
 

@@ -1,5 +1,6 @@
 import { App, Editor, FuzzySuggestModal, MarkdownView, Notice, Platform, Plugin, normalizePath, setIcon } from 'obsidian';
 import { DEFAULT_SETTINGS, LAST_USED_TYPE_SENTINEL, WatchLogPluginSettings, AirtimeSchedule, normalizeRowsLayout, setActiveDateFormat } from './types';
+import { normalizeCustomPropertyList } from './CustomProperties';
 import { cardSizeToMinWidth } from './VirtualGrid';
 import type { ReadingData, CardStyleTab } from './types';
 import type { HistoryEntry } from './HistoryManager';
@@ -383,6 +384,9 @@ export default class WatchLogPlugin extends Plugin {
 		if (!this.settings.reviews?.length) this.settings.reviews = DEFAULT_SETTINGS.reviews;
 		if (!this.settings.priorities?.length) this.settings.priorities = DEFAULT_SETTINGS.priorities;
 		if (!this.settings.seasonPalette?.length) this.settings.seasonPalette = DEFAULT_SETTINGS.seasonPalette;
+		this.settings.watchlistCustomProperties = normalizeCustomPropertyList(
+			this.settings.watchlistCustomProperties,
+		);
 		// the rating system must always be exactly five well-formed tiers; a missing or malformed value
 		// (older or hand-edited data) resets to defaults
 		if (

@@ -27,6 +27,7 @@ import { renderShelf, renderShelfTitle, type ShelfSelect } from './RowsView';
 import { RowsCustomizeModal } from './RowsCustomizeModal';
 import { toggleFilterPanel, FilterSection } from './FilterPanel';
 import { toggleSortPopover } from './SortPopover';
+import { openNoteFile } from './NoteLinkButton';
 
 
 type DisplayItem =
@@ -923,8 +924,11 @@ export class ListTab {
 					this.toggleCardSelection(card, title.id);
 					return;
 				}
-				this.openDetailModalForTitle(title.id);
+				this.handleTitleActivate(title.id);
 			},
+			onContextMenu: this.plugin.settings.openNoteOnClick
+				? () => this.openDetailModalForTitle(title.id)
+				: undefined,
 		}, { container: this.container, cleanups: this.activeCleanups });
 	}
 
@@ -1078,6 +1082,24 @@ export class ListTab {
 		new TitleDetailModal(this.plugin.app, this.plugin, current, () => {
 			this.render();
 		}, (name) => this.applyPersonSearch(name)).open();
+	}
+
+	/** Left-click: open note when openNoteOnClick is on, otherwise the detail modal. */
+	private handleTitleActivate(titleId: string): void {
+		if (this.plugin.settings.openNoteOnClick) {
+			void this.openTitleNote(titleId);
+			return;
+		}
+		this.openDetailModalForTitle(titleId);
+	}
+
+	private async openTitleNote(titleId: string): Promise<void> {
+		const title = this.dataManager.getTitle(titleId);
+		if (!title) return;
+		const created = await this.dataManager.createMarkdownFileIfMissing(title);
+		if (!created) await this.dataManager.rewriteFrontmatterIfExists(title);
+		await openNoteFile(this.plugin.app, this.dataManager.getNoteFilePath(title));
+		await this.dataManager.syncNotesFromFile(title.id);
 	}
 
 	/** Click-to-filter a credit name: routes it through the search bar, so it is visible and clearable. */
@@ -2305,12 +2327,24 @@ export class ListTab {
 				this.toggleRowSelection(row, title.id);
 				return;
 			}
+			if (this.plugin.settings.openNoteOnClick) {
+				void this.openTitleNote(title.id);
+				return;
+			}
 			this.expandedId = isExpanded ? null : title.id;
 			if (!isExpanded) {
 				this.collapsedSeasons = this.dataManager.getCollapsedSeasonsForTitle(title.id);
 			}
 			this.rerenderTable();
 		});
+
+		if (this.plugin.settings.openNoteOnClick) {
+			row.addEventListener('contextmenu', (e) => {
+				e.preventDefault();
+				if (this.selectionMode) return;
+				this.openDetailModalForTitle(title.id);
+			});
+		}
 
 		if (isExpanded && !this.selectionMode) {
 			this.renderAccordion(parent, title);

@@ -1,4 +1,4 @@
-import { Modal, Notice, TFile, setIcon } from 'obsidian';
+import { Modal, Notice, setIcon } from 'obsidian';
 import type WatchLogPlugin from './main';
 import type { GameDataManager } from './GameDataManager';
 import {
@@ -22,6 +22,7 @@ import { toggleSortPopover } from './SortPopover';
 import { ConfirmModal } from './ConfirmModal';
 import { GameDetailModal, GameGroupDetailModal, gameGroupProgress } from './GameDetailModal';
 import { AddGameModal } from './AddGameModal';
+import { openNoteFile } from './NoteLinkButton';
 
 /** One entry in the merged grid: an ungrouped game, or a group card with its resolved members. */
 type GameDisplayItem =
@@ -1467,10 +1468,15 @@ export class GamesTab {
 			onClick: (card) => {
 				if (this.selectionMode) {
 					this.toggleCardSelection(card, game.id);
+				} else if (this.plugin.settings.openNoteOnClick) {
+					void this.openGameNote(game);
 				} else {
 					this.openDetailModal(game);
 				}
 			},
+			onContextMenu: this.plugin.settings.openNoteOnClick && !this.selectionMode
+				? () => this.openDetailModal(game)
+				: undefined,
 		}, { container: this.container, cleanups: this.activeCleanups });
 	}
 
@@ -1673,11 +1679,10 @@ export class GamesTab {
 	}
 
 	private async openGameNote(game: Game): Promise<void> {
-		const path = await this.gameData.ensureGameNote(game);
-		const file = this.plugin.app.vault.getAbstractFileByPath(path);
-		if (file instanceof TFile) {
-			void this.plugin.app.workspace.getLeaf('tab').openFile(file);
-		}
+		const fresh = this.gameData.getGame(game.id) ?? game;
+		const created = await this.gameData.createGameNoteIfMissing(fresh);
+		if (!created) await this.gameData.rewriteFrontmatterIfExists(fresh);
+		await openNoteFile(this.plugin.app, this.gameData.noteFilePath(fresh.title));
 	}
 
 	/** Opens the API-assisted Add modal (the tab re-renders via its data listener). */

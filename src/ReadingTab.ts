@@ -16,6 +16,7 @@ import { VirtualGrid, computeGridMetrics, setRowsCardWidth, type GridMetrics } f
 import { VirtualScroller } from './VirtualScroller';
 import { LazyCardObserver } from './LazyCardObserver';
 import { openCardMenu } from './PosterCard';
+import { openNoteFile } from './NoteLinkButton';
 
 type SubTab = 'books' | 'manga';
 
@@ -1460,7 +1461,20 @@ export class ReadingTab {
 				this.render();
 			});
 		} else {
-			card.addEventListener('click', () => this.openDetailModal(mode, id));
+			card.addEventListener('click', () => {
+				if (this.plugin.settings.openNoteOnClick) {
+					void this.openReadingNote(mode, id);
+				} else {
+					this.openDetailModal(mode, id);
+				}
+			});
+			if (this.plugin.settings.openNoteOnClick) {
+				card.addEventListener('contextmenu', (e) => {
+					e.preventDefault();
+					e.stopPropagation();
+					this.openDetailModal(mode, id);
+				});
+			}
 		}
 	}
 
@@ -1646,5 +1660,15 @@ export class ReadingTab {
 			id,
 			() => this.renderContent(),
 		).open();
+	}
+
+	private async openReadingNote(mode: 'book' | 'manga', id: string): Promise<void> {
+		const item = mode === 'book'
+			? this.readingData.getBook(id)
+			: this.readingData.getManga(id);
+		if (!item) return;
+		const created = await this.readingData.createReadingNoteIfMissing(mode, item);
+		if (!created) await this.readingData.rewriteFrontmatterIfExists(mode, item);
+		await openNoteFile(this.plugin.app, this.readingData.noteFilePath(mode, item.title));
 	}
 }

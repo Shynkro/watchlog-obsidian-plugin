@@ -691,7 +691,7 @@ export class GameDataManager {
 	}
 
 	private rebuildWithFrontmatter(existing: string, frontmatter: string): string {
-		const fmMatch = existing.match(/^---\n[\s\S]*?\n---\n?/);
+		const fmMatch = existing.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
 		if (fmMatch) {
 			return frontmatter + '\n' + existing.slice(fmMatch[0].length);
 		}

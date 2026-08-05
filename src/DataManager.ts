@@ -1326,7 +1326,7 @@ export class DataManager {
 	 * the file has none. Mirrors ReadingDataManager.rebuildWithFrontmatter.
 	 */
 	private rebuildWithFrontmatter(existing: string, frontmatter: string): string {
-		const fmMatch = existing.match(/^---\n[\s\S]*?\n---\n?/);
+		const fmMatch = existing.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
 		if (fmMatch) {
 			return frontmatter + '\n' + existing.slice(fmMatch[0].length);
 		}
@@ -1354,6 +1354,20 @@ export class DataManager {
 		if (!match) return null;
 		// strip the template's leading blank line and trailing whitespace, keep internal breaks
 		return (match[2] ?? '').replace(/^\n+/, '').replace(/\s+$/, '');
+	}
+
+	/**
+	 * Pulls the on-disk `## Notes` body into the in-memory title, so a later
+	 * updateMarkdownFile() can't clobber edits made directly in the .md.
+	 */
+	async syncNotesFromFile(titleId: string): Promise<void> {
+		const title = this.getTitle(titleId);
+		if (!title) return;
+		const fileNotes = await this.readNotesFromFile(title);
+		if (fileNotes === null || fileNotes === title.notes) return;
+		title.notes = fileNotes;
+		this.updateTitleSilent(title);
+		await this.persist();
 	}
 
 	/**

@@ -436,6 +436,18 @@ export class WatchLogSettingsTab extends PluginSettingTab {
 			);
 
 		new Setting(el)
+			.setName('Open note on click')
+			.setDesc('When on, left-click opens the markdown note (creating it if needed). Right-click opens the detail modal.')
+			.addToggle((t) =>
+				t
+					.setValue(this.plugin.settings.openNoteOnClick ?? false)
+					.onChange(async (v) => {
+						this.plugin.settings.openNoteOnClick = v;
+						await this.plugin.saveSettings();
+					}),
+			);
+
+		new Setting(el)
 			.setName('Set finish date automatically')
 			.setDesc("Record today's date as the finish date when a watch title or reading entry is completed.")
 			.addToggle((t) =>

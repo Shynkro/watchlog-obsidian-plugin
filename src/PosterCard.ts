@@ -112,6 +112,8 @@ export interface PosterCardSpec {
 	/** Omit for no ⋮ button. */
 	menuItems?: CardMenuItem[];
 	onClick: (card: HTMLElement) => void;
+	/** Right-click on the card (e.g. open detail modal when openNoteOnClick is on). */
+	onContextMenu?: (card: HTMLElement) => void;
 }
 
 export function buildPosterCard(
@@ -229,6 +231,14 @@ export function buildPosterCard(
 
 	// in under mode the whole cell is clickable (poster AND text), but the callback still receives the
 	// card — selection styling lives there
-	(cell ?? card).addEventListener('click', () => spec.onClick(card));
+	const clickTarget = cell ?? card;
+	clickTarget.addEventListener('click', () => spec.onClick(card));
+	if (spec.onContextMenu) {
+		clickTarget.addEventListener('contextmenu', (e) => {
+			e.preventDefault();
+			e.stopPropagation();
+			spec.onContextMenu?.(card);
+		});
+	}
 	return card;
 }

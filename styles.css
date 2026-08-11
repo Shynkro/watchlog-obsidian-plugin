@@ -8007,14 +8007,26 @@ input.wl-settings-count-input {
 }
 
 /* Sub-tab bar */
-.wl-reading-subtabs {
-  display: flex;
-  gap: 2px;
+.wl-subtabs {
   border-bottom: 0.5px solid var(--background-modifier-border);
   margin: 8px -2px 0;
 }
 
-.wl-reading-subtab {
+.wl-subtabs-track {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 2px;
+  margin-bottom: -0.5px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.wl-subtabs-track::-webkit-scrollbar {
+  display: none;
+}
+
+.wl-subtab {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -8026,25 +8038,30 @@ input.wl-settings-count-input {
   cursor: pointer;
   font-size: var(--font-ui-small);
   font-weight: 500;
-  margin-bottom: -0.5px;
   transition: color 0.15s, border-color 0.15s;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
-.wl-reading-subtab:hover {
+.wl-subtab:hover {
   color: var(--text-normal);
 }
 
-.wl-reading-subtab.is-active {
+.wl-subtab.is-active {
   color: #1D9E75;
   border-bottom-color: #1D9E75;
 }
 
-.wl-reading-subtab-icon {
+.wl-list-type-subtabs {
+  margin: 0 -2px 4px;
+}
+
+.wl-subtab-icon {
   font-size: 1rem;
   line-height: 1;
 }
 
-.wl-reading-subtab-label {
+.wl-subtab-label {
   line-height: 1;
 }
 

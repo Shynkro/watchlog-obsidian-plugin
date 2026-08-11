@@ -128,7 +128,7 @@ export class AddFromUrlModal extends Modal {
 			this.close();
 
 			const type = result.mediaType === 'movie' ? 'Movie' : 'TV Show';
-			new AddTitleModal(this.app, this.plugin, this.dataManager, this.onAdded, {
+			new AddTitleModal(this.app, this.plugin, this.dataManager, this.onAdded, undefined, {
 				title: result.title,
 				type,
 				episodes: result.episodes,

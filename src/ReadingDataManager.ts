@@ -13,6 +13,11 @@ import {
 	READING_STATUSES,
 	DEFAULT_READING_STATUS_COLORS,
 } from './types';
+import {
+	appendCustomPropertyLines,
+	normalizeCustomProperty,
+	normalizeCustomPropertyList,
+} from './CustomProperties';
 
 export type ReadingKind = 'book' | 'manga';
 
@@ -177,13 +182,15 @@ export class ReadingDataManager {
 			}
 		}
 
-		for (const c of this.data.bookColumns) {
-			if (!Array.isArray(c.options)) { c.options = []; changed = true; }
-			if (!c.color) { c.color = '#5F5E5A'; changed = true; }
+		const bookCols = normalizeCustomPropertyList(this.data.bookColumns);
+		if (JSON.stringify(bookCols) !== JSON.stringify(this.data.bookColumns)) {
+			this.data.bookColumns = bookCols;
+			changed = true;
 		}
-		for (const c of this.data.mangaColumns) {
-			if (!Array.isArray(c.options)) { c.options = []; changed = true; }
-			if (!c.color) { c.color = '#5F5E5A'; changed = true; }
+		const mangaCols = normalizeCustomPropertyList(this.data.mangaColumns);
+		if (JSON.stringify(mangaCols) !== JSON.stringify(this.data.mangaColumns)) {
+			this.data.mangaColumns = mangaCols;
+			changed = true;
 		}
 
 		// reconcile the auto "To be released" status against each release date
@@ -652,6 +659,23 @@ export class ReadingDataManager {
 		return kind === 'book' ? this.data.bookColumns : this.data.mangaColumns;
 	}
 
+	/** Replace the full column list (Customize editor); strips removed ids from items. */
+	async setColumns(kind: 'book' | 'manga', next: ReadingCustomColumn[]): Promise<void> {
+		const prev = this.columnsFor(kind);
+		const nextIds = new Set(next.map((c) => c.id));
+		const removed = prev.map((c) => c.id).filter((id) => !nextIds.has(id));
+		if (kind === 'book') this.data.bookColumns = next;
+		else this.data.mangaColumns = next;
+		if (removed.length > 0) {
+			const items = kind === 'book' ? this.data.books : this.data.manga;
+			for (const item of items) {
+				if (!item.customFields) continue;
+				for (const id of removed) delete item.customFields[id];
+			}
+		}
+		await this.save();
+	}
+
 	async addColumn(kind: 'book' | 'manga', column: ReadingCustomColumn): Promise<void> {
 		this.columnsFor(kind).push(column);
 		await this.save();
@@ -721,6 +745,11 @@ export class ReadingDataManager {
 		}
 		item.dateModified = new Date().toISOString();
 		await this.save();
+		try {
+			await this.rewriteFrontmatterIfExists(kind, item);
+		} catch {
+			// note may not exist yet
+		}
 	}
 
 	// Reading note files
@@ -783,6 +812,12 @@ export class ReadingDataManager {
 		if (item.coverUrl) lines.push(`coverUrl: ${yamlEscape(item.coverUrl)}`);
 		if (item.externalLink) lines.push(`externalLink: ${yamlEscape(item.externalLink)}`);
 		lines.push(`type: ${kind === 'book' ? 'book' : 'manga'}`);
+		appendCustomPropertyLines(
+			lines,
+			this.columnsFor(kind).map((c) => normalizeCustomProperty(c)),
+			item.customFields,
+			yamlEscape,
+		);
 		lines.push('---');
 		return lines.join('\n');
 	}
@@ -792,7 +827,7 @@ export class ReadingDataManager {
 	}
 
 	private rebuildWithFrontmatter(existing: string, frontmatter: string): string {
-		const fmMatch = existing.match(/^---\n[\s\S]*?\n---\n?/);
+		const fmMatch = existing.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
 		if (fmMatch) {
 			return frontmatter + '\n' + existing.slice(fmMatch[0].length);
 		}

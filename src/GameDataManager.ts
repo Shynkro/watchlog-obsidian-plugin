@@ -9,6 +9,7 @@ import {
 	GamesSavedFilterPreset,
 	RecommendedDaily,
 	SteamSyncUpdate,
+	CustomProperty,
 	defaultGamesSettings,
 	GAME_AUTO_STATUS,
 	GAME_FINISHED_STATUS,
@@ -19,6 +20,10 @@ import {
 	todayIso,
 	TagDefinition,
 } from './types';
+import {
+	appendCustomPropertyLines,
+	normalizeCustomPropertyList,
+} from './CustomProperties';
 
 function sanitizeFilename(input: string): string {
 	return input.replace(/[*"\\/<>:|?]/g, '-').trim();
@@ -134,6 +139,12 @@ export class GameDataManager {
 			s.types = defaultGamesSettings().types;
 			changed = true;
 		}
+		const normalizedProps = normalizeCustomPropertyList(s.customProperties);
+		if (!Array.isArray(s.customProperties) || JSON.stringify(normalizedProps) !== JSON.stringify(s.customProperties)) {
+			s.customProperties = normalizedProps;
+			changed = true;
+		}
+
 		if (!Array.isArray(s.platforms)) {
 			s.platforms = defaultGamesSettings().platforms;
 			changed = true;
@@ -230,6 +241,10 @@ export class GameDataManager {
 			if (g.dateFinished === undefined) { g.dateFinished = null; changed = true; }
 			if (!g.dateAdded) { g.dateAdded = new Date().toISOString(); changed = true; }
 			if (!g.dateModified) { g.dateModified = g.dateAdded; changed = true; }
+			if (!g.customFields || typeof g.customFields !== 'object') {
+				g.customFields = {};
+				changed = true;
+			}
 		}
 
 		if (!Array.isArray(this.data.groups)) {
@@ -276,6 +291,40 @@ export class GameDataManager {
 	async updateSettings(patch: Partial<GamesSettings>): Promise<void> {
 		this.data.settings = { ...this.data.settings, ...patch };
 		await this.save();
+	}
+
+	getCustomProperties(): CustomProperty[] {
+		return this.data.settings.customProperties ?? [];
+	}
+
+	/** Replace the property schema; removes deleted ids from every game's customFields. */
+	async setCustomProperties(next: CustomProperty[]): Promise<void> {
+		const prevIds = new Set((this.data.settings.customProperties ?? []).map((p) => p.id));
+		const nextIds = new Set(next.map((p) => p.id));
+		const removed = [...prevIds].filter((id) => !nextIds.has(id));
+		this.data.settings.customProperties = next;
+		if (removed.length > 0) {
+			for (const g of this.data.games) {
+				if (!g.customFields) continue;
+				for (const id of removed) delete g.customFields[id];
+			}
+		}
+		await this.save();
+	}
+
+	async setCustomField(gameId: string, propId: string, value: string | number | null): Promise<void> {
+		const game = this.getGame(gameId);
+		if (!game) return;
+		if (!game.customFields) game.customFields = {};
+		if (value === null || value === '') delete game.customFields[propId];
+		else game.customFields[propId] = value;
+		game.dateModified = new Date().toISOString();
+		await this.save();
+		try {
+			await this.rewriteFrontmatterIfExists(game);
+		} catch {
+			// note may not exist yet
+		}
 	}
 
 	/**
@@ -682,6 +731,12 @@ export class GameDataManager {
 		if (game.storeUrl) lines.push(`storeUrl: ${yamlEscape(game.storeUrl)}`);
 		if (game.externalLink) lines.push(`externalLink: ${yamlEscape(game.externalLink)}`);
 		lines.push('type: game');
+		appendCustomPropertyLines(
+			lines,
+			normalizeCustomPropertyList(this.data.settings.customProperties),
+			game.customFields,
+			yamlEscape,
+		);
 		lines.push('---');
 		return lines.join('\n');
 	}
@@ -691,7 +746,7 @@ export class GameDataManager {
 	}
 
 	private rebuildWithFrontmatter(existing: string, frontmatter: string): string {
-		const fmMatch = existing.match(/^---\n[\s\S]*?\n---\n?/);
+		const fmMatch = existing.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
 		if (fmMatch) {
 			return frontmatter + '\n' + existing.slice(fmMatch[0].length);
 		}

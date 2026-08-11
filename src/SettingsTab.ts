@@ -6,6 +6,7 @@ import { SELECTABLE_READING_STATUSES, READING_STATUSES, LAST_USED_TYPE_SENTINEL,
 import { readingStatusColor } from './ReadingTab';
 import { SteamSyncModal } from './SteamSyncModal';
 import type { SteamFailureReason } from './ApiService';
+import { renderCustomPropertiesEditor } from './CustomProperties';
 
 /** short status-line label per Steam failure (the modal shows the long form) */
 function steamFailureLabel(reason: SteamFailureReason): string {
@@ -431,6 +432,18 @@ export class WatchLogSettingsTab extends PluginSettingTab {
 					.setValue(this.plugin.settings.halfStarRatings ?? false)
 					.onChange(async (v) => {
 						this.plugin.settings.halfStarRatings = v;
+						await this.plugin.saveSettings();
+					}),
+			);
+
+		new Setting(el)
+			.setName('Open note on click')
+			.setDesc('When on, left-click opens the markdown note (creating it if needed). Right-click opens the detail modal.')
+			.addToggle((t) =>
+				t
+					.setValue(this.plugin.settings.openNoteOnClick ?? false)
+					.onChange(async (v) => {
+						this.plugin.settings.openNoteOnClick = v;
 						await this.plugin.saveSettings();
 					}),
 			);
@@ -1737,6 +1750,18 @@ export class WatchLogSettingsTab extends PluginSettingTab {
 		this.renderTagSection(watchlist.body, 'Type', 'types', syncWatchlist);
 		this.renderTagSection(watchlist.body, 'Status', 'statuses', syncWatchlist);
 		this.renderSeasonColors(watchlist.body);
+		const wlPropsCard = this.sgCard(watchlist.body, {
+			label: 'Properties',
+			help: 'Custom fields shown in the title detail modal and Add title form. Values are stored in data.json and mirrored into each note’s YAML frontmatter.',
+		});
+		renderCustomPropertiesEditor({
+			app: this.app,
+			container: wlPropsCard,
+			getList: () => this.plugin.settings.watchlistCustomProperties ?? [],
+			setList: (next) => this.plugin.dataManager.setWatchlistCustomProperties(next),
+			deleteConfirmNoun: 'watchlist title',
+			onChanged: syncWatchlist,
+		});
 		syncWatchlist();
 
 		// reading
@@ -1748,6 +1773,37 @@ export class WatchLogSettingsTab extends PluginSettingTab {
 		});
 		this.renderReadingColors(reading.body);
 		this.renderReadingStatusColors(reading.body);
+		const readingData = this.plugin.readingDataManager;
+		const bookPropsCard = this.sgCard(reading.body, {
+			label: 'Book properties',
+			help: 'Custom fields for books. Managed here (replaces the old Manage columns modal). Values mirror into each note’s YAML.',
+		});
+		renderCustomPropertiesEditor({
+			app: this.app,
+			container: bookPropsCard,
+			getList: () => readingData.getBookColumns(),
+			setList: (next) => readingData.setColumns('book', next),
+			styleToggle: {
+				get: () => readingData.getSettings().bookCustomFieldStyle ?? 'fill',
+				set: async (v) => { await readingData.updateSettings({ bookCustomFieldStyle: v }); },
+			},
+			deleteConfirmNoun: 'book',
+		});
+		const mangaPropsCard = this.sgCard(reading.body, {
+			label: 'Manga properties',
+			help: 'Custom fields for manga. Values mirror into each note’s YAML.',
+		});
+		renderCustomPropertiesEditor({
+			app: this.app,
+			container: mangaPropsCard,
+			getList: () => readingData.getMangaColumns(),
+			setList: (next) => readingData.setColumns('manga', next),
+			styleToggle: {
+				get: () => readingData.getSettings().mangaCustomFieldStyle ?? 'fill',
+				set: async (v) => { await readingData.updateSettings({ mangaCustomFieldStyle: v }); },
+			},
+			deleteConfirmNoun: 'manga',
+		});
 		reading.setChip({ text: `2 types · ${READING_STATUSES.length} statuses`, tone: 'count' });
 
 		// games
@@ -1763,6 +1819,18 @@ export class WatchLogSettingsTab extends PluginSettingTab {
 			tone: 'count',
 		});
 		this.renderGamesTags(games.body, syncGames);
+		const gamesPropsCard = this.sgCard(games.body, {
+			label: 'Properties',
+			help: 'Custom fields shown in the game detail modal and Add game form. Values mirror into each note’s YAML frontmatter.',
+		});
+		renderCustomPropertiesEditor({
+			app: this.app,
+			container: gamesPropsCard,
+			getList: () => this.plugin.gameDataManager.getCustomProperties(),
+			setList: (next) => this.plugin.gameDataManager.setCustomProperties(next),
+			deleteConfirmNoun: 'game',
+			onChanged: syncGames,
+		});
 		syncGames();
 
 		// shared across libraries
@@ -2409,6 +2477,23 @@ export class WatchLogSettingsTab extends PluginSettingTab {
 					.onChange(async (v) => {
 						this.plugin.settings.coloredTypeBadges = v;
 						await this.plugin.saveSettings();
+					}),
+			);
+
+		new Setting(el)
+			.setName('Type sub-tabs')
+			.setDesc('Show an All tab plus one sub-tab per type. When on, the Type filter in Filters is hidden.')
+			.addToggle((t) =>
+				t
+					.setValue(this.plugin.settings.watchlistTypeSubTabs ?? false)
+					.onChange(async (v) => {
+						this.plugin.settings.watchlistTypeSubTabs = v;
+						if (v) {
+							const lf = this.plugin.settings.listFilters;
+							if (lf) lf.typeExclude = [];
+						}
+						await this.plugin.saveSettings();
+						this.plugin.dataManager.notifyChange();
 					}),
 			);
 

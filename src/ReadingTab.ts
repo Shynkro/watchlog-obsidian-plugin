@@ -9,13 +9,14 @@ import { renderShelf, renderShelfTitle, type ShelfSelect } from './RowsView';
 import { RowsCustomizeModal } from './RowsCustomizeModal';
 import { AddReadingModal } from './AddReadingModal';
 import { ReadingDetailModal } from './ReadingDetailModal';
-import { ReadingManageColumnsModal } from './ReadingManageColumnsModal';
 import { ConfirmModal } from './ConfirmModal';
 import { renderToolbarWithMobileToggle } from './MobileToolbar';
 import { VirtualGrid, computeGridMetrics, setRowsCardWidth, type GridMetrics } from './VirtualGrid';
 import { VirtualScroller } from './VirtualScroller';
 import { LazyCardObserver } from './LazyCardObserver';
 import { openCardMenu } from './PosterCard';
+import { openNoteFile } from './NoteLinkButton';
+import { isDropdownType } from './CustomProperties';
 
 type SubTab = 'books' | 'manga';
 
@@ -211,15 +212,16 @@ export class ReadingTab {
 	}
 
 	private renderSubTabs(): void {
-		const bar = this.container.createDiv({ cls: 'wl-reading-subtabs' });
+		const bar = this.container.createDiv({ cls: 'wl-subtabs' });
+		const track = bar.createDiv({ cls: 'wl-subtabs-track' });
 
-		const booksBtn = bar.createEl('button', {
-			cls: `wl-reading-subtab${this.activeSubTab === 'books' ? ' is-active' : ''}`,
+		const booksBtn = track.createEl('button', {
+			cls: `wl-subtab${this.activeSubTab === 'books' ? ' is-active' : ''}`,
 			text: 'Books',
 		});
 
-		const mangaBtn = bar.createEl('button', {
-			cls: `wl-reading-subtab${this.activeSubTab === 'manga' ? ' is-active' : ''}`,
+		const mangaBtn = track.createEl('button', {
+			cls: `wl-subtab${this.activeSubTab === 'manga' ? ' is-active' : ''}`,
 			text: 'Manga',
 		});
 
@@ -382,13 +384,6 @@ export class ReadingTab {
 		});
 
 		const right = parent.createDiv({ cls: 'wl-reading-toolbar-right' });
-		const manageBtn = right.createEl('button', {
-			cls: 'wl-btn wl-btn-sm wl-reading-manage-btn',
-			attr: { 'aria-label': 'Manage columns', title: 'Manage columns' },
-			text: '⚙',
-		});
-		manageBtn.addEventListener('click', () => this.openManageColumns());
-
 		const addBtn = right.createEl('button', {
 			cls: 'wl-reading-add-btn wl-btn-success',
 			text: this.activeSubTab === 'books' ? '+ Add book' : '+ Add manga',
@@ -763,7 +758,7 @@ export class ReadingTab {
 			const excludeSet = draft.customExclude.get(col.id) ?? new Set<string>();
 			draft.customExclude.set(col.id, excludeSet);
 			this.addFilterSection(el, collapsed, `custom:${col.id}`, col.name, (content) => {
-				if (col.type === 'select') {
+				if (isDropdownType(col.type)) {
 					controllers.push(this.addMultiSelectBody(content, col.options, excludeSet));
 				} else {
 					controllers.push(this.addHasValueBody(content, excludeSet));
@@ -877,7 +872,7 @@ export class ReadingTab {
 			for (const col of columns) {
 				const ex = f.customExclude[col.id];
 				if (!ex || ex.length === 0) continue;
-				if (col.type === 'select') {
+				if (isDropdownType(col.type)) {
 					// Like Status: only items whose value is an excluded option are
 					// hidden; items with no value for this field are unaffected.
 					const v = it.customFields?.[col.id];
@@ -1459,7 +1454,20 @@ export class ReadingTab {
 				this.render();
 			});
 		} else {
-			card.addEventListener('click', () => this.openDetailModal(mode, id));
+			card.addEventListener('click', () => {
+				if (this.plugin.settings.openNoteOnClick) {
+					void this.openReadingNote(mode, id);
+				} else {
+					this.openDetailModal(mode, id);
+				}
+			});
+			if (this.plugin.settings.openNoteOnClick) {
+				card.addEventListener('contextmenu', (e) => {
+					e.preventDefault();
+					e.stopPropagation();
+					this.openDetailModal(mode, id);
+				});
+			}
 		}
 	}
 
@@ -1626,16 +1634,6 @@ export class ReadingTab {
 		).open();
 	}
 
-	private openManageColumns(): void {
-		new ReadingManageColumnsModal(
-			this.plugin.app,
-			this.plugin,
-			this.readingData,
-			this.activeSubTab === 'books' ? 'book' : 'manga',
-			() => this.renderContent(),
-		).open();
-	}
-
 	private openDetailModal(mode: 'book' | 'manga', id: string): void {
 		new ReadingDetailModal(
 			this.plugin.app,
@@ -1645,5 +1643,15 @@ export class ReadingTab {
 			id,
 			() => this.renderContent(),
 		).open();
+	}
+
+	private async openReadingNote(mode: 'book' | 'manga', id: string): Promise<void> {
+		const item = mode === 'book'
+			? this.readingData.getBook(id)
+			: this.readingData.getManga(id);
+		if (!item) return;
+		const created = await this.readingData.createReadingNoteIfMissing(mode, item);
+		if (!created) await this.readingData.rewriteFrontmatterIfExists(mode, item);
+		await openNoteFile(this.plugin.app, this.readingData.noteFilePath(mode, item.title));
 	}
 }

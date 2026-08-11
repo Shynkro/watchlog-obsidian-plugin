@@ -27,17 +27,21 @@ import { renderShelf, renderShelfTitle, type ShelfSelect } from './RowsView';
 import { RowsCustomizeModal } from './RowsCustomizeModal';
 import { toggleFilterPanel, FilterSection } from './FilterPanel';
 import { toggleSortPopover } from './SortPopover';
+import { openNoteFile } from './NoteLinkButton';
 
 
 type DisplayItem =
 	| { kind: 'title'; data: WatchLogTitle }
 	| { kind: 'group'; data: WatchLogGroup; members: WatchLogTitle[] };
 
+type TypeSubTab = 'All' | string;
 
 const PRIORITY_ORDER = ['High', 'Medium', 'Low'] as const;
 
 
 export class ListTab {
+	private static sessionTypeSubTab: TypeSubTab | null = null;
+
 	private container: HTMLElement;
 	private plugin: WatchLogPlugin;
 	private dataManager: DataManager;
@@ -148,13 +152,20 @@ export class ListTab {
 			this.filterFavoritesOnly        = saved.favoritesOnly        ?? false;
 		}
 
+		if (this.typeSubTabsEnabled()) {
+			this.filterTypeExclude.clear();
+		}
+
 		// keep the preset button green while filters still match it
 		const savedPreset = dataManager.getSavedFilterPreset();
 		if (savedPreset) {
 			const setsMatch = (a: Set<string>, b: string[]) =>
 				a.size === b.length && b.every((x) => a.has(x));
+			const typeMatch = this.typeSubTabsEnabled()
+				? true
+				: setsMatch(this.filterTypeExclude, savedPreset.typeExclude);
 			this.savedFilterActive =
-				setsMatch(this.filterTypeExclude, savedPreset.typeExclude) &&
+				typeMatch &&
 				setsMatch(this.filterStatusExclude, savedPreset.statusExclude) &&
 				setsMatch(this.filterGroupExclude, savedPreset.groupExclude) &&
 				setsMatch(this.filterRatingExclude, savedPreset.ratingExclude) &&
@@ -175,7 +186,7 @@ export class ListTab {
 
 	private saveFiltersToSettings(): void {
 		this.plugin.settings.listFilters = {
-			typeExclude:     Array.from(this.filterTypeExclude),
+			typeExclude:     this.typeSubTabsEnabled() ? [] : Array.from(this.filterTypeExclude),
 			statusExclude:   Array.from(this.filterStatusExclude),
 			groupExclude:    Array.from(this.filterGroupExclude),
 			ratingExclude:   Array.from(this.filterRatingExclude),
@@ -192,8 +203,28 @@ export class ListTab {
 		void this.plugin.saveSettings();
 	}
 
+	private typeSubTabsEnabled(): boolean {
+		return this.plugin.settings.watchlistTypeSubTabs === true;
+	}
+
+	private get activeTypeSubTab(): TypeSubTab {
+		if (!this.typeSubTabsEnabled()) return 'All';
+		const session = ListTab.sessionTypeSubTab;
+		if (session === null || session === 'All') return 'All';
+		const known = this.plugin.settings.types.some((t) => t.name === session);
+		return known ? session : 'All';
+	}
+
+	private set activeTypeSubTab(value: TypeSubTab) {
+		ListTab.sessionTypeSubTab = value;
+	}
+
+	private typeSubTabFiltering(): boolean {
+		return this.typeSubTabsEnabled() && this.activeTypeSubTab !== 'All';
+	}
+
 	private hasActiveFilter(): boolean {
-		return this.filterTypeExclude.size > 0 ||
+		return (!this.typeSubTabsEnabled() && this.filterTypeExclude.size > 0) ||
 			this.filterStatusExclude.size > 0 ||
 			this.filterPriorityExclude.size > 0 ||
 			this.filterRatingExclude.size > 0 ||
@@ -217,7 +248,9 @@ export class ListTab {
 	}
 
 	private applyPreset(preset: SavedFilterPreset): void {
-		this.filterTypeExclude          = new Set(preset.typeExclude);
+		this.filterTypeExclude          = this.typeSubTabsEnabled()
+			? new Set()
+			: new Set(preset.typeExclude);
 		this.filterStatusExclude        = new Set(preset.statusExclude);
 		this.filterGroupExclude         = new Set(preset.groupExclude);
 		this.filterRatingExclude        = new Set(preset.ratingExclude);
@@ -250,7 +283,11 @@ export class ListTab {
 
 	private titlePassesFilters(t: WatchLogTitle): boolean {
 		if (this.filterFavoritesOnly && !t.favorite) return false;
-		if (this.filterTypeExclude.size > 0 && this.filterTypeExclude.has(t.type)) return false;
+		if (this.typeSubTabFiltering()) {
+			if (t.type !== this.activeTypeSubTab) return false;
+		} else if (this.filterTypeExclude.size > 0 && this.filterTypeExclude.has(t.type)) {
+			return false;
+		}
 		if (this.filterRecentlyArrivedOnly) {
 			if (!ListTab.isRecentlyArrived(t)) return false;
 		} else if (this.filterStatusExclude.size > 0 && this.filterStatusExclude.has(t.status)) {
@@ -290,6 +327,9 @@ export class ListTab {
 		this.activeCleanups = [];
 		this.container.empty();
 		this.container.addClass('wl-list');
+		if (this.typeSubTabsEnabled() && this.filterTypeExclude.size > 0) {
+			this.filterTypeExclude.clear();
+		}
 		if (this.currentView === 'list') {
 			this.renderListContent();
 		} else {
@@ -298,6 +338,7 @@ export class ListTab {
 	}
 
 	private renderListContent(): void {
+		if (this.typeSubTabsEnabled()) this.renderTypeSubTabs();
 		this.renderHeader();
 		this.container.createDiv({ cls: 'wl-divider' });
 		this.renderTable(this._lastScrollTop);
@@ -308,9 +349,29 @@ export class ListTab {
 	// shelf cards mirror the grids' *computed* card width (setRowsCardWidth), not the setting minimum
 
 	private renderRowsContent(): void {
+		if (this.typeSubTabsEnabled()) this.renderTypeSubTabs();
 		this.renderHeader();
 		this.container.createDiv({ cls: 'wl-divider' });
 		this.renderRowsView();
+	}
+
+	private renderTypeSubTabs(): void {
+		const bar = this.container.createDiv({ cls: 'wl-subtabs wl-list-type-subtabs' });
+		const track = bar.createDiv({ cls: 'wl-subtabs-track' });
+		const active = this.activeTypeSubTab;
+
+		const tabs: TypeSubTab[] = ['All', ...this.plugin.settings.types.map((t) => t.name)];
+		for (const name of tabs) {
+			const btn = track.createEl('button', {
+				cls: `wl-subtab${active === name ? ' is-active' : ''}`,
+				text: name,
+			});
+			btn.addEventListener('click', () => {
+				if (this.activeTypeSubTab === name) return;
+				this.activeTypeSubTab = name;
+				this.render();
+			});
+		}
 	}
 
 	private renderRowsView(): void {
@@ -321,7 +382,7 @@ export class ListTab {
 
 		// search/filter keeps the shelves layout; a shelf with no matches disappears entirely
 		const searchMatched = this.getSearchMatchedIds();
-		const filtering = searchMatched !== null || this.hasActiveFilter();
+		const filtering = searchMatched !== null || this.hasActiveFilter() || this.typeSubTabFiltering();
 		const titleVisible = (t: WatchLogTitle): boolean =>
 			!filtering ||
 			(!this.filterGroupsOnly &&
@@ -457,6 +518,7 @@ export class ListTab {
 			// the grouped grids are regular layout entries, so they sit anywhere — the windowing
 			// math is position-independent. byType/byStatus are mutually exclusive (normalizeRowsLayout)
 			byType: () => {
+				if (this.typeSubTabFiltering()) return;
 				this.renderGroupedGridsSection(scroll, titleVisible, filtering, 'byType');
 			},
 			byStatus: () => {
@@ -468,7 +530,12 @@ export class ListTab {
 		const layout = normalizeRowsLayout(this.plugin.settings.rowsLayout);
 		// both grids off: one flat ungrouped grid (the old Cards view) at the first grid entry's position
 		const gridIds = new Set(['byType', 'byStatus']);
-		const anyGridEnabled = layout.some((e) => gridIds.has(e.id) && e.enabled);
+		const gridEnabled = (id: string, enabled: boolean): boolean => {
+			if (!enabled) return false;
+			if (id === 'byType' && this.typeSubTabFiltering()) return false;
+			return true;
+		};
+		const anyGridEnabled = layout.some((e) => gridIds.has(e.id) && gridEnabled(e.id, e.enabled));
 		const anyShelfEnabled = layout.some((e) => !gridIds.has(e.id) && e.enabled);
 		let flatRendered = false;
 		for (const entry of layout) {
@@ -479,6 +546,7 @@ export class ListTab {
 				}
 				continue;
 			}
+			if (!gridEnabled(entry.id, entry.enabled) && gridIds.has(entry.id)) continue;
 			if (!entry.enabled) continue;
 			shelfRenderers[entry.id]?.();
 		}
@@ -525,7 +593,8 @@ export class ListTab {
 		const q = this.searchQuery.trim().toLowerCase();
 		const titleMap = new Map(this.dataManager.getTitles().map((t) => [t.id, t]));
 		const titleFilterActive =
-			this.filterTypeExclude.size > 0 ||
+			this.typeSubTabFiltering() ||
+			(!this.typeSubTabsEnabled() && this.filterTypeExclude.size > 0) ||
 			this.filterStatusExclude.size > 0 ||
 			this.filterRatingExclude.size > 0 ||
 			this.filterPriorityExclude.size > 0 ||
@@ -855,8 +924,11 @@ export class ListTab {
 					this.toggleCardSelection(card, title.id);
 					return;
 				}
-				this.openDetailModalForTitle(title.id);
+				this.handleTitleActivate(title.id);
 			},
+			onContextMenu: this.plugin.settings.openNoteOnClick
+				? () => this.openDetailModalForTitle(title.id)
+				: undefined,
 		}, { container: this.container, cleanups: this.activeCleanups });
 	}
 
@@ -1010,6 +1082,24 @@ export class ListTab {
 		new TitleDetailModal(this.plugin.app, this.plugin, current, () => {
 			this.render();
 		}, (name) => this.applyPersonSearch(name)).open();
+	}
+
+	/** Left-click: open note when openNoteOnClick is on, otherwise the detail modal. */
+	private handleTitleActivate(titleId: string): void {
+		if (this.plugin.settings.openNoteOnClick) {
+			void this.openTitleNote(titleId);
+			return;
+		}
+		this.openDetailModalForTitle(titleId);
+	}
+
+	private async openTitleNote(titleId: string): Promise<void> {
+		const title = this.dataManager.getTitle(titleId);
+		if (!title) return;
+		const created = await this.dataManager.createMarkdownFileIfMissing(title);
+		if (!created) await this.dataManager.rewriteFrontmatterIfExists(title);
+		await openNoteFile(this.plugin.app, this.dataManager.getNoteFilePath(title));
+		await this.dataManager.syncNotesFromFile(title.id);
 	}
 
 	/** Click-to-filter a credit name: routes it through the search bar, so it is visible and clearable. */
@@ -1252,7 +1342,6 @@ export class ListTab {
 		btn.addEventListener('click', (e) => {
 			e.stopPropagation();
 
-			const typeOpts = this.plugin.settings.types.map((t) => t.name);
 			const statusOpts = this.plugin.settings.statuses.map((s) => s.name);
 			// half options (½ … 4½) appear only when a title holds that exact rating; keys
 			// mirror titlePassesFilters' `${t.rating}★`, so 4.5 matches "4.5★", never 4 or 5
@@ -1283,8 +1372,12 @@ export class ListTab {
 				filterFavoritesOnly:      this.filterFavoritesOnly,
 			};
 
-			const sections: FilterSection[] = [
-				{ label: 'Type',     opts: typeOpts,     excludeSet: draft.typeExclude },
+			const sections: FilterSection[] = [];
+			if (!this.typeSubTabsEnabled()) {
+				const typeOpts = this.plugin.settings.types.map((t) => t.name);
+				sections.push({ label: 'Type', opts: typeOpts, excludeSet: draft.typeExclude });
+			}
+			sections.push(
 				{
 					label: 'Status', opts: statusOpts, excludeSet: draft.statusExclude,
 					specials: [{
@@ -1310,7 +1403,7 @@ export class ListTab {
 					label: 'Priority', opts: priorityOpts, excludeSet: draft.priorityExclude,
 					formatOpt: formatPriorityOpt,
 				},
-			];
+			);
 			if (groupOpts.length > 0) {
 				sections.push({
 					label: 'Group', opts: groupOpts, excludeSet: draft.groupExclude,
@@ -1337,7 +1430,7 @@ export class ListTab {
 				presetExists: this.dataManager.getSavedFilterPreset() !== null,
 				onPresetSave: async () => {
 					await this.dataManager.setSavedFilterPreset({
-						typeExclude:     Array.from(draft.typeExclude),
+						typeExclude:     this.typeSubTabsEnabled() ? [] : Array.from(draft.typeExclude),
 						statusExclude:   Array.from(draft.statusExclude),
 						groupExclude:    Array.from(draft.groupExclude),
 						ratingExclude:   Array.from(draft.ratingExclude),
@@ -1354,7 +1447,7 @@ export class ListTab {
 				},
 				onPresetChanged: () => this.render(),
 				onApply: () => {
-					this.filterTypeExclude     = draft.typeExclude;
+					this.filterTypeExclude     = this.typeSubTabsEnabled() ? new Set() : draft.typeExclude;
 					this.filterStatusExclude   = draft.statusExclude;
 					this.filterRatingExclude   = draft.ratingExclude;
 					this.filterPriorityExclude = draft.priorityExclude;
@@ -1597,9 +1690,10 @@ export class ListTab {
 	// Modal helpers
 
 	private openAddTitleModal(): void {
+		const preferredType = this.typeSubTabFiltering() ? this.activeTypeSubTab : undefined;
 		new AddTitleModal(this.plugin.app, this.plugin, this.dataManager, () => {
 			this.render();
-		}).open();
+		}, preferredType).open();
 	}
 
 	// Search & controls
@@ -1969,7 +2063,8 @@ export class ListTab {
 				if (!nameMatch && !memberMatch) continue;
 			}
 
-			const anyFilterActive = this.filterTypeExclude.size > 0 ||
+			const anyFilterActive = this.typeSubTabFiltering() ||
+				(!this.typeSubTabsEnabled() && this.filterTypeExclude.size > 0) ||
 				this.filterStatusExclude.size > 0 ||
 				this.filterRatingExclude.size > 0 ||
 				this.filterPriorityExclude.size > 0;
@@ -2232,12 +2327,24 @@ export class ListTab {
 				this.toggleRowSelection(row, title.id);
 				return;
 			}
+			if (this.plugin.settings.openNoteOnClick) {
+				void this.openTitleNote(title.id);
+				return;
+			}
 			this.expandedId = isExpanded ? null : title.id;
 			if (!isExpanded) {
 				this.collapsedSeasons = this.dataManager.getCollapsedSeasonsForTitle(title.id);
 			}
 			this.rerenderTable();
 		});
+
+		if (this.plugin.settings.openNoteOnClick) {
+			row.addEventListener('contextmenu', (e) => {
+				e.preventDefault();
+				if (this.selectionMode) return;
+				this.openDetailModalForTitle(title.id);
+			});
+		}
 
 		if (isExpanded && !this.selectionMode) {
 			this.renderAccordion(parent, title);

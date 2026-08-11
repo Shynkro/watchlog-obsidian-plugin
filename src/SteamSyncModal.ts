@@ -362,6 +362,7 @@ export class SteamSyncModal extends Modal {
 			dateFinished: null,
 			dateAdded: now,
 			dateModified: now,
+			customFields: {},
 		};
 	}
 

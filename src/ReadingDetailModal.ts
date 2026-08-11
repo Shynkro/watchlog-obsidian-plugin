@@ -3,12 +3,11 @@ import type WatchLogPlugin from './main';
 import type { ReadingDataManager } from './ReadingDataManager';
 import {
 	Book, Manga, ReadingCustomColumn, ReadingStatus, SELECTABLE_READING_STATUSES,
-	DEFAULT_FIELD_COLOR, BookProgressUnit,
+	BookProgressUnit,
 	bookProgressUnit, bookUnitProgress, formatCount,
 	formatDateDisplay, todayIso,
 } from './types';
 import { createDatePicker } from './DatePicker';
-import { deriveFillColor, deriveBorderColor } from './ColorPicker';
 import { apiErrorMessage } from './ApiService';
 import { appendNoteLinkButton } from './NoteLinkButton';
 import { ConfirmModal } from './ConfirmModal';
@@ -16,8 +15,11 @@ import { renderStarRating } from './StarRating';
 import { VaultFilePicker } from './AddReadingModal';
 import { readingStatusColor, coverFallbackColor } from './ReadingTab';
 import { openStatusDropdown, renderSegmentedToggle } from './StatusDropdown';
-import { ReadingManageColumnsModal } from './ReadingManageColumnsModal';
 import { pinModalFooter } from './StickyModal';
+import {
+	normalizePropertyType,
+	renderCustomPropertiesDetailSection,
+} from './CustomProperties';
 
 interface ParsedQuote {
 	reference: string;
@@ -1149,173 +1151,27 @@ export class ReadingDetailModal extends Modal {
 			: this.readingData.getMangaColumns();
 	}
 
-	private openManageColumns(): void {
-		new ReadingManageColumnsModal(
-			this.plugin.app,
-			this.plugin,
-			this.readingData,
-			this.mode,
-			() => this.renderAll(),
-		).open();
-	}
-
 	private renderCustomFieldsSection(item: Book | Manga): void {
-		const section = this.contentEl.createDiv({ cls: 'wl-reading-detail-custom' });
-
-		const heading = section.createDiv({ cls: 'wl-reading-detail-custom-heading' });
-		heading.createSpan({ cls: 'wl-reading-section-label', text: 'Custom fields' });
-		const manageLink = heading.createEl('a', {
-			cls: 'wl-reading-detail-custom-manage',
-			text: 'Manage',
-		});
-		manageLink.addEventListener('click', (e) => {
-			e.preventDefault();
-			this.openManageColumns();
-		});
-
-		const cols = this.getColumns();
-		if (cols.length === 0) {
-			const empty = section.createDiv({ cls: 'wl-reading-detail-custom-empty' });
-			empty.createSpan({ text: 'No custom fields; add some via ' });
-			const link = empty.createEl('a', {
-				cls: 'wl-reading-detail-custom-manage',
-				text: 'Manage',
-			});
-			link.addEventListener('click', (e) => {
-				e.preventDefault();
-				this.openManageColumns();
-			});
-			empty.createSpan({ text: '.' });
-			return;
-		}
-
 		const settings = this.readingData.getSettings();
 		const fieldStyle = this.mode === 'book'
 			? (settings.bookCustomFieldStyle ?? 'fill')
 			: (settings.mangaCustomFieldStyle ?? 'fill');
-		const tableCls = fieldStyle === 'border'
-			? 'wl-reading-custom-table is-border-mode'
-			: 'wl-reading-custom-table';
-		const table = section.createDiv({ cls: tableCls });
-		for (const col of cols) {
-			this.renderCustomFieldRow(table, item, col);
-		}
-	}
-
-	private renderCustomFieldRow(parent: HTMLElement, item: Book | Manga, col: ReadingCustomColumn): void {
-		const row = parent.createDiv({ cls: 'wl-reading-custom-row' });
-		const labelCell = row.createDiv({ cls: 'wl-reading-custom-label', text: col.name });
-		const valueCell = row.createDiv({ cls: 'wl-reading-custom-value' });
-
-		const settings = this.readingData.getSettings();
-		const style = this.mode === 'book'
-			? (settings.bookCustomFieldStyle ?? 'fill')
-			: (settings.mangaCustomFieldStyle ?? 'fill');
-		const color = col.color ?? DEFAULT_FIELD_COLOR;
-
-		// fill/border looks live in CSS keyed off the table's is-border-mode class; only the per-column
-		// colour is dynamic
-		if (style === 'fill') {
-			labelCell.setCssProps({ '--wl-field-bg': deriveFillColor(color) });
-		} else {
-			labelCell.setCssProps({ '--wl-field-border': deriveBorderColor(color) });
-		}
-
-		const raw = item.customFields?.[col.id];
-		this.renderCustomValueDisplay(valueCell, item, col, raw);
-	}
-
-	private renderCustomValueDisplay(
-		cell: HTMLElement,
-		item: Book | Manga,
-		col: ReadingCustomColumn,
-		raw: string | number | undefined,
-	): void {
-		cell.empty();
-		const hasValue = raw !== undefined && raw !== null && raw !== '';
-		const display = cell.createSpan({
-			cls: `wl-reading-custom-display${hasValue ? '' : ' is-placeholder'}`,
-			text: hasValue ? String(raw) : '—',
-		});
-		display.addEventListener('click', () => {
-			this.renderCustomValueEditor(cell, item, col, raw);
-		});
-	}
-
-	private renderCustomValueEditor(
-		cell: HTMLElement,
-		item: Book | Manga,
-		col: ReadingCustomColumn,
-		current: string | number | undefined,
-	): void {
-		cell.empty();
-		if (col.type === 'select') {
-			const select = cell.createEl('select', { cls: 'wl-select wl-reading-custom-input' });
-			const blank = select.createEl('option', { value: '', text: '—' });
-			if (current === undefined || current === null || current === '') blank.selected = true;
-			for (const opt of col.options) {
-				const o = select.createEl('option', { value: opt, text: opt });
-				if (String(current ?? '') === opt) o.selected = true;
-			}
-			const commit = (): void => {
-				const v = select.value;
-				void this.saveCustomField(item, col, v === '' ? null : v).then(() => {
-					const fresh = this.getItem();
-					this.renderCustomValueDisplay(cell, fresh ?? item, col, fresh?.customFields?.[col.id]);
-				});
-			};
-			select.addEventListener('change', commit);
-			select.addEventListener('blur', commit);
-			select.focus();
-			return;
-		}
-
-		const input = cell.createEl('input', {
-			cls: 'wl-modal-input wl-reading-custom-input',
-			attr: {
-				type: col.type === 'number' ? 'number' : 'text',
-				placeholder: 'Enter value…',
+		renderCustomPropertiesDetailSection({
+			parent: this.contentEl,
+			properties: this.getColumns().map((c) => ({
+				...c,
+				type: normalizePropertyType(c.type),
+			})),
+			getFields: () => {
+				const fresh = this.getItem() ?? item;
+				return fresh.customFields ?? {};
+			},
+			fieldStyle,
+			emptyHint: 'No properties yet. Add some in Settings → Customize → Reading.',
+			onSave: async (propId, value) => {
+				await this.readingData.setCustomField(this.mode, item.id, propId, value);
 			},
 		});
-		if (current !== undefined && current !== null) input.value = String(current);
-
-		const commit = (): void => {
-			const raw = input.value.trim();
-			let value: string | number | null;
-			if (raw === '') {
-				value = null;
-			} else if (col.type === 'number') {
-				const n = Number(raw);
-				value = isNaN(n) ? null : n;
-			} else {
-				value = raw;
-			}
-			void this.saveCustomField(item, col, value).then(() => {
-				const fresh = this.getItem();
-				this.renderCustomValueDisplay(cell, fresh ?? item, col, fresh?.customFields?.[col.id]);
-			});
-		};
-		input.addEventListener('blur', commit);
-		input.addEventListener('keydown', (e) => {
-			if (e.key === 'Enter') {
-				e.preventDefault();
-				input.blur();
-			} else if (e.key === 'Escape') {
-				e.preventDefault();
-				const fresh = this.getItem();
-				this.renderCustomValueDisplay(cell, fresh ?? item, col, fresh?.customFields?.[col.id]);
-			}
-		});
-		input.focus();
-		input.select();
-	}
-
-	private async saveCustomField(
-		item: Book | Manga,
-		col: ReadingCustomColumn,
-		value: string | number | null,
-	): Promise<void> {
-		await this.readingData.setCustomField(this.mode, item.id, col.id, value);
 	}
 
 	private async renderQuotesSection(item: Book | Manga): Promise<void> {

@@ -14,6 +14,11 @@ import { apiErrorMessage, SEARCH_PAGE_SIZE, SEARCH_RESULT_LIMIT } from './ApiSer
 import { LibraryIndex, animeResultIdKeys, mediaResultIdKeys } from './LibraryIndex';
 import { createDatePicker } from './DatePicker';
 import { renderStarRating } from './StarRating';
+import {
+	normalizeCustomPropertyList,
+	renderCustomPropertyFormFields,
+	type CustomPropertyFormState,
+} from './CustomProperties';
 
 type SearchResult = AnimeSearchResult | MediaSearchResult;
 
@@ -58,6 +63,7 @@ export class AddTitleModal extends Modal {
 	private fieldStudio: string[] = [];
 	private skipDuplicateCheck = false;
 	private duplicateWarningEl: HTMLElement | null = null;
+	private customPropState: CustomPropertyFormState = { values: {} };
 	// built on first search, reused for the modal's life
 	private libIndex: LibraryIndex | null = null;
 
@@ -74,6 +80,7 @@ export class AddTitleModal extends Modal {
 		plugin: WatchLogPlugin,
 		dataManager: DataManager,
 		onAdded: (entry: WatchLogTitle) => void,
+		preferredType?: string,
 		prefill?: {
 			title?: string;
 			searchQuery?: string;
@@ -92,8 +99,10 @@ export class AddTitleModal extends Modal {
 		this.plugin = plugin;
 		this.dataManager = dataManager;
 		this.onAdded = onAdded;
-		// preselect the resolved default type; a prefill type (e.g. from URL detection) overrides it below
 		this.selectedType = this.plugin.resolveDefaultAddType() || this.selectedType;
+		if (preferredType) {
+			this.selectedType = preferredType;
+		}
 		if (prefill) {
 			this.selectedType = prefill.type;
 			if (prefill.title) {
@@ -545,6 +554,12 @@ export class AddTitleModal extends Modal {
 			});
 		}
 
+		renderCustomPropertyFormFields(
+			this.formEl,
+			normalizeCustomPropertyList(this.plugin.settings.watchlistCustomProperties),
+			this.customPropState,
+		);
+
 		const btnRow = this.formEl.createDiv({ cls: 'wl-modal-btn-row' });
 		const addBtn = btnRow.createEl('button', { cls: 'wl-btn wl-btn-primary', text: 'Add to watchlog' });
 		addBtn.addEventListener('click', () => void this.addTitle());
@@ -618,6 +633,7 @@ export class AddTitleModal extends Modal {
 			...(this.fieldStudio.length > 0 ? { studio: this.fieldStudio } : {}),
 			...(this.fieldMalId !== null ? { malId: this.fieldMalId } : {}),
 			...(this.fieldAnilistId !== null ? { anilistId: this.fieldAnilistId } : {}),
+			customFields: { ...this.customPropState.values },
 		};
 
 		// auto-complete episodes when adding with Completed status

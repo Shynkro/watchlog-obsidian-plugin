@@ -11110,6 +11110,12 @@ input.wl-settings-count-input {
   margin-left: auto;
 }
 
+/* results panel, phone: keep a poster row visible instead of letting the flex column squash it;
+   :not(:empty) leaves the panel flat until a search fills it */
+.is-mobile .wl-modal-results:not(:empty) {
+  min-height: 240px;
+}
+
 /* needs 3 classes: Obsidian's `body.is-mobile input[type=text] { width: 100% }` outweighs 2 */
 .is-mobile .wl-reading-detail-details .wl-reading-detail-date-input {
   height: auto;
